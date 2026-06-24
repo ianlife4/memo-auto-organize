@@ -306,7 +306,8 @@ def parse_filename(filename: str):
     raw = re.sub(r"洞見研報", "", raw)
     # 移除頁數標記跟 _隨機碼 (中國研報網站尾巴常見)
     raw = re.sub(r"【\d+\s*[页頁]】", "", raw)
-    raw = re.sub(r"_[A-Za-z0-9]{4,8}$", "", raw)  # 尾巴隨機碼如 _gJ55, _pS32
+    # 隨機碼必須「字母+數字混合」(避免誤刪 _Citi _Daiwa _memo 等純字母 broker)
+    raw = re.sub(r"_(?=[A-Za-z0-9]*\d)(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{4,8}$", "", raw)
     # 移除多餘空白跟空 [] []
     raw = re.sub(r"\[\s*\]", "", raw)
     raw = re.sub(r"\s+", " ", raw)
