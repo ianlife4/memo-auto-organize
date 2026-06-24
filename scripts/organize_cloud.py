@@ -299,6 +299,28 @@ def build_index(dbx) -> int:
     return len(reports)
 
 
+HEARTBEAT_PATH = f"{STATE_DIR}/last_local_run.txt"
+HEARTBEAT_THRESHOLD_MIN = 30  # 本機若 30 分鐘內跑過，雲端跳過
+
+
+def check_heartbeat(dbx) -> bool:
+    """看本機是否剛跑過。回 True 表示應該跳過"""
+    try:
+        _, resp = dbx.files_download(HEARTBEAT_PATH)
+        ts_str = resp.content.decode("utf-8").strip()
+        ts = datetime.fromisoformat(ts_str)
+        # 對齊 timezone
+        now = datetime.now(ts.tzinfo) if ts.tzinfo else datetime.utcnow()
+        delta_min = (now - ts).total_seconds() / 60
+        print(f"  本機上次跑: {ts_str} ({delta_min:.1f} 分鐘前)")
+        return delta_min < HEARTBEAT_THRESHOLD_MIN
+    except ApiError as e:
+        if "not_found" in str(e):
+            print("  本機沒有 heartbeat (從沒跑過)，照常跑")
+            return False
+        raise
+
+
 def main():
     print("=" * 50)
     print(f"雲端自動整理 - {datetime.utcnow().isoformat()}Z")
@@ -311,6 +333,12 @@ def main():
     except Exception as e:
         print(f"認證失敗: {e}")
         raise SystemExit(1)
+
+    # Heartbeat check: 本機剛跑過就跳過 (節省 GHA 用量)
+    print("\n[0/3] 檢查本機 heartbeat...")
+    if check_heartbeat(dbx):
+        print(f"  本機 {HEARTBEAT_THRESHOLD_MIN} 分鐘內跑過，雲端跳過")
+        return
 
     # 載 stock_names
     print("\n[1/3] 載入 stock_names...")

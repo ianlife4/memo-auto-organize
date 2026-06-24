@@ -863,6 +863,18 @@ def fix_orphan_duplicates() -> int:
     return fixed
 
 
+def write_heartbeat():
+    """寫 timestamp 給雲端 GHA 看：本機剛跑過，雲端不用再跑"""
+    try:
+        heartbeat_path = SCRIPTS_DIR / "last_local_run.txt"
+        heartbeat_path.write_text(
+            datetime.now(timezone.utc).isoformat(),
+            encoding="utf-8",
+        )
+    except Exception as e:
+        print(f"  (heartbeat 寫入失敗: {e})")
+
+
 def main():
     print(f"根目錄: {ROOT}\n")
     print("[1/4] 整理檔案...")
@@ -876,6 +888,7 @@ def main():
     print(f"  完成: 整理 {fixed} 份\n")
     print("[4/4] 重建索引...")
     build_index()
+    write_heartbeat()
     print("\n全部完成。開 啟動閱讀器.bat 看結果。")
 
 

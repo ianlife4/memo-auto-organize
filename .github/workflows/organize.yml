@@ -2,7 +2,7 @@ name: 自動整理 MEMO烏骨雞
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # 每 5 分鐘
+    - cron: '*/30 * * * *'  # 每 30 分鐘 (節省 GHA 用量)
   workflow_dispatch:  # 也可以手動觸發測試
 
 concurrency:
