@@ -16,6 +16,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
+try:
+    from zhconv import convert as _zh_convert
+    def to_traditional(text: str) -> str:
+        return _zh_convert(text, "zh-tw") if text else text
+except ImportError:
+    def to_traditional(text: str) -> str:
+        return text  # 沒裝 zhconv 就原樣返回
+
 # 強制 UTF-8 輸出，避免 Windows cp950 對簡體中文崩潰
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -120,17 +128,19 @@ def lookup_stock_in_text(text: str):
 
 
 def enrich_meta(meta: dict, filename: str) -> dict:
-    """補上 parser 沒抓到的 stock_code (僅補欄位，不改 category，避免命名衝突)"""
+    """補上 parser 沒抓到的 stock_code + 統一中文轉繁體"""
     if not meta:
         return meta
-    if meta.get("stock_code"):
-        return meta
-    if meta.get("category") in ("個股", "外資報告", "產業"):
+    if not meta.get("stock_code") and meta.get("category") in ("個股", "外資報告", "產業"):
         code, name = lookup_stock_in_text(filename + " " + (meta.get("topic") or ""))
         if code:
             meta["stock_code"] = code
             if not meta.get("stock_name"):
                 meta["stock_name"] = name
+    # 統一轉繁體 (避免顯示簡體混雜)
+    for k in ("topic", "stock_name", "broker"):
+        if meta.get(k):
+            meta[k] = to_traditional(meta[k])
     return meta
 
 
@@ -204,6 +214,9 @@ BROKERS = [
     ("东兴证券", "东兴证券"), ("东吴证券", "东吴证券"),
     ("交银国际证券", "交银国际"), ("交银国际", "交银国际"),
     ("华源证券", "华源证券"), ("华西证券", "华西证券"),
+    # 中國銀行系投資銀行 / 國際財經媒體
+    ("中国银河", "中国银河"), ("彭博", "Bloomberg"),
+    ("路透", "Reuters"), ("Wind资讯", "Wind"),
 ]
 
 OVERSEAS_MARKETS = ("US", "HK", "JP", "CN", "KR", "UK")
@@ -258,6 +271,13 @@ def parse_filename(filename: str):
     # 移除尾部 _(1) (2) (3) 重複編號 (含連帶的尾底線/空白)
     raw = re.sub(r"[_\s]*\(\d+\)$", "", raw)
     raw = raw.rstrip("_- ")
+    # 移除網站浮水印/廣告
+    raw = re.sub(r"【洞[一-鿿]研报[^】]*】", "", raw)
+    raw = re.sub(r"【洞[一-鿿]研報[^】]*】", "", raw)
+    raw = re.sub(r"DJyanbao\.com", "", raw, flags=re.IGNORECASE)
+    raw = re.sub(r"洞见研报", "", raw)
+    raw = re.sub(r"洞見研報", "", raw)
+    raw = raw.strip(" -_")
     # 統一分隔符: ｜ → |，| 前後空白吃掉
     name = re.sub(r"\s*\|\s*", "|", raw)
     broker = detect_broker(name)
@@ -635,6 +655,10 @@ def sanitize_for_filename(text: str) -> str:
 
 
 def standardized_name(meta: dict, ext: str = ".pdf") -> str:
+    # 簡 → 繁 (對 topic, stock_name, broker 都套用，避免中港報告顯示簡體)
+    for k in ("topic", "stock_name", "broker"):
+        if meta.get(k):
+            meta[k] = to_traditional(meta[k])
     ymd = meta["date"].replace("-", "")
     if meta["category"] == "外資報告":
         # 根據 metadata 形態決定命名

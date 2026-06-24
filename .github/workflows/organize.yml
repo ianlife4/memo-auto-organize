@@ -3,7 +3,12 @@ name: 自動整理 MEMO烏骨雞
 on:
   schedule:
     - cron: '*/30 * * * *'  # 每 30 分鐘 (節省 GHA 用量)
-  workflow_dispatch:  # 也可以手動觸發測試
+  workflow_dispatch:
+    inputs:
+      force:
+        description: '跳過 heartbeat 強制跑 (測試新規則用)'
+        type: boolean
+        default: false
 
 concurrency:
   group: organize
@@ -22,11 +27,12 @@ jobs:
           python-version: '3.12'
 
       - name: Install deps
-        run: pip install dropbox
+        run: pip install -r requirements.txt
 
       - name: Run organize
         env:
           DROPBOX_REFRESH_TOKEN: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
           DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
           DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+          FORCE_RUN: ${{ inputs.force }}
         run: python scripts/organize_cloud.py

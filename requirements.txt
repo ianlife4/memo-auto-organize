@@ -1,1 +1,2 @@
 dropbox>=11.36.0
+zhconv>=1.4

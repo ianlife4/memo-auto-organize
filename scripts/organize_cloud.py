@@ -335,10 +335,13 @@ def main():
         raise SystemExit(1)
 
     # Heartbeat check: 本機剛跑過就跳過 (節省 GHA 用量)
-    print("\n[0/3] 檢查本機 heartbeat...")
-    if check_heartbeat(dbx):
-        print(f"  本機 {HEARTBEAT_THRESHOLD_MIN} 分鐘內跑過，雲端跳過")
-        return
+    if os.environ.get("FORCE_RUN", "").lower() == "true":
+        print("\n[0/3] FORCE_RUN=true，跳過 heartbeat 檢查")
+    else:
+        print("\n[0/3] 檢查本機 heartbeat...")
+        if check_heartbeat(dbx):
+            print(f"  本機 {HEARTBEAT_THRESHOLD_MIN} 分鐘內跑過，雲端跳過")
+            return
 
     # 載 stock_names
     print("\n[1/3] 載入 stock_names...")
