@@ -347,7 +347,7 @@ def main():
     print(f"  {len(stock_names)} 個股號")
 
     # 整理
-    print("\n[2/3] 整理散落 PDF...")
+    print("\n[1/3] 整理散落 PDF...")
     stats = organize(dbx)
     print(f"  moved={stats['moved']}, pending={stats['pending']}, learned={stats['learned']}")
 
@@ -356,12 +356,45 @@ def main():
         upload_text(dbx, STOCK_NAMES_PATH,
                     json.dumps(parser_lib.STOCK_NAMES, ensure_ascii=False, indent=2))
 
-    # 重建 index (即使沒新檔，固定每次重建確保最新)
+    # 刪重複 _(N) (跟本機 update.py 的 dedupe_duplicates 等效)
+    print("\n[2/3] 刪重複 _(N)...")
+    removed = dedupe_cloud(dbx)
+    print(f"  刪 {removed} 份重複")
+
+    # 重建 index
     print("\n[3/3] 重建索引...")
     n = build_index(dbx)
     print(f"  寫入 {INDEX_OUTPUT} ({n} 筆)")
 
     print("\n完成")
+
+
+def dedupe_cloud(dbx) -> int:
+    """掃所有歸位檔，找 _(N) 重複版，size 差 <= 100 bytes 就刪"""
+    removed = 0
+    by_dir = {}
+    for entry, year, cat in get_all_managed_files(dbx):
+        by_dir.setdefault((year, cat), []).append(entry)
+    for (year, cat), entries in by_dir.items():
+        # 建 basename → entry mapping
+        by_basename = {}
+        for e in entries:
+            stem = e.name.rsplit(".", 1)[0] if "." in e.name else e.name
+            ext = "." + e.name.rsplit(".", 1)[1] if "." in e.name else ""
+            m = re.match(r"^(.+)_\((\d+)\)$", stem)
+            if m:
+                base = m.group(1) + ext
+                original = f"{ROOT_PREFIX}/{year}/{cat}/{base}"
+                # 看原版有沒有
+                try:
+                    orig_meta = dbx.files_get_metadata(original)
+                    if hasattr(orig_meta, "size") and abs(orig_meta.size - e.size) <= 100:
+                        dbx.files_delete_v2(e.path_display)
+                        print(f"    [刪] {e.path_display} (= {original})")
+                        removed += 1
+                except ApiError:
+                    pass
+    return removed
 
 
 if __name__ == "__main__":
