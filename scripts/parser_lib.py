@@ -19,10 +19,11 @@ from urllib.parse import quote
 try:
     from zhconv import convert as _zh_convert
     def to_traditional(text: str) -> str:
-        return _zh_convert(text, "zh-tw") if text else text
+        # zh-hant 是保守版繁體，不做地區詞替換 (台→臺 不會發生)
+        return _zh_convert(text, "zh-hant") if text else text
 except ImportError:
     def to_traditional(text: str) -> str:
-        return text  # 沒裝 zhconv 就原樣返回
+        return text
 
 # 強制 UTF-8 輸出，避免 Windows cp950 對簡體中文崩潰
 try:
