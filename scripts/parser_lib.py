@@ -524,13 +524,18 @@ def parse_filename(filename: str):
 
     # ===== 中國研報網站翻譯外資 (Pattern A) =====
     # 摩根士丹利-电池与人工智能：xxx-20260621【52页】_pS32
-    # 杰富瑞-美国化工：xxx-20260615【6页】_Ge98
+    # 基础化工-基础化工行业：xxx-广发证券[作者]-20260621【11页】_yC80 (中國券商在 topic 內)
     m = re.match(r"^([一-鿿]+)-(.+?)-(\d{8})【\d+[页頁]】(?:_[\w]+)?$", name)
     if m:
-        brk_zh, topic_raw, ymd = m.groups()
-        brk = detect_broker(brk_zh)
+        head, topic_raw, ymd = m.groups()
+        brk = detect_broker(head)
+        if not brk:
+            # head 是行業類別，broker 藏在 topic_raw 內，找 X证券
+            brk_m = re.search(r"([一-鿿]{2,}证券)", topic_raw)
+            if brk_m:
+                brk = brk_m.group(1)
         if brk:
-            topic = topic_raw.split("-", 1)[0].strip()  # 主題第一段 (中文)
+            topic = topic_raw.split("-", 1)[0].strip()
             cat = classify_topic_text(topic + " " + name)
             return _meta(cat, date=f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}",
                          broker=brk, topic=topic)
