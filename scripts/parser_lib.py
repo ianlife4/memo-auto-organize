@@ -16,13 +16,28 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
+_TW_PREFER = [  # 台灣慣用 (post-process zhconv 結果)
+    ("臺新", "台新"), ("臺積電", "台積電"), ("臺塑", "台塑"),
+    ("臺化", "台化"), ("臺泥", "台泥"), ("臺灣", "台灣"),
+    ("臺中", "台中"), ("臺北", "台北"), ("臺股", "台股"),
+    ("臺幣", "台幣"), ("臺電", "台電"),
+]
+
 try:
     from zhconv import convert as _zh_convert
     def to_traditional(text: str) -> str:
-        # zh-hant 是保守版繁體，不做地區詞替換 (台→臺 不會發生)
-        return _zh_convert(text, "zh-hant") if text else text
+        if not text:
+            return text
+        text = _zh_convert(text, "zh-hant")
+        for old, new in _TW_PREFER:
+            text = text.replace(old, new)
+        return text
 except ImportError:
     def to_traditional(text: str) -> str:
+        if not text:
+            return text
+        for old, new in _TW_PREFER:
+            text = text.replace(old, new)
         return text
 
 # 強制 UTF-8 輸出，避免 Windows cp950 對簡體中文崩潰
