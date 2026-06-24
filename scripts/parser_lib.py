@@ -699,13 +699,17 @@ def organize():
         target_dir = ROOT / year / meta["category"]
         target_dir.mkdir(parents=True, exist_ok=True)
         try:
-            target = unique_path(target_dir / standardized_name(meta, pdf.suffix.lower()))
+            naive_target = target_dir / standardized_name(meta, pdf.suffix.lower())
         except Exception as e:
             print(f"  [待處理] {pdf.name} (改名失敗: {e})")
             shutil.move(str(pdf), str(unique_path(PENDING_DIR / pdf.name)))
             pending += 1
             continue
-        # 如果已經在標準位置且檔名一樣，跳過
+        # 已經在標準位置且標準名 → skip (避免被 unique_path 誤判為衝突再加 _(2))
+        if naive_target.exists() and naive_target.resolve() == pdf.resolve():
+            skipped += 1
+            continue
+        target = unique_path(naive_target)
         if pdf.resolve() == target.resolve():
             skipped += 1
             continue
