@@ -244,6 +244,9 @@ BROKERS = [
     # 中國銀行系投資銀行 / 國際財經媒體
     ("中国银河", "中国银河"), ("彭博", "Bloomberg"),
     ("路透", "Reuters"), ("Wind资讯", "Wind"),
+    # 亞洲獨立研究機構
+    ("Aletheia", "Aletheia"), ("aletheia", "Aletheia"),
+    ("CGS", "CGS"), ("Maybank", "Maybank"),
 ]
 
 OVERSEAS_MARKETS = ("US", "HK", "JP", "CN", "KR", "UK")
