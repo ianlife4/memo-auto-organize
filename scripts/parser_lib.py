@@ -879,6 +879,23 @@ def write_heartbeat():
         print(f"  (heartbeat 寫入失敗: {e})")
 
 
+def sync_parser_to_cloud():
+    """把本機 update.py 內容同步到 auto_organize/scripts/parser_lib.py
+    確保雲端跑跟本機一樣的 parser 規則。需要再手動 git push。
+    """
+    cloud_parser = SCRIPTS_DIR / "auto_organize" / "scripts" / "parser_lib.py"
+    if not cloud_parser.parent.exists():
+        return
+    try:
+        src = Path(__file__).read_bytes()
+        if cloud_parser.exists() and cloud_parser.read_bytes() == src:
+            return  # 已一致
+        cloud_parser.write_bytes(src)
+        print(f"  (parser_lib.py 已同步到 auto_organize\\，記得 git push 雲端才會用到)")
+    except Exception as e:
+        print(f"  (parser sync 失敗: {e})")
+
+
 def main():
     print(f"根目錄: {ROOT}\n")
     print("[1/4] 整理檔案...")
@@ -893,6 +910,7 @@ def main():
     print("[4/4] 重建索引...")
     build_index()
     write_heartbeat()
+    sync_parser_to_cloud()
     print("\n全部完成。開 啟動閱讀器.bat 看結果。")
 
 
