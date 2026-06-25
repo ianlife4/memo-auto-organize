@@ -300,7 +300,7 @@ def build_index(dbx) -> int:
 
 
 HEARTBEAT_PATH = f"{STATE_DIR}/last_local_run.txt"
-HEARTBEAT_THRESHOLD_MIN = 30  # 本機若 30 分鐘內跑過，雲端跳過
+HEARTBEAT_THRESHOLD_MIN = 10  # 本機若 10 分鐘內跑過，雲端跳過
 
 
 def check_heartbeat(dbx) -> bool:
