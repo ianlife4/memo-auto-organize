@@ -1206,6 +1206,43 @@ def write_heartbeat():
         print(f"  (heartbeat 寫入失敗: {e})")
 
 
+def strip_pdf_actions_in_managed_dirs():
+    """對 2025/26/類別/ 下的 PDF 移除 auto-print + JS (擋 Citi 等廠商強制列印)"""
+    try:
+        sys.path.insert(0, str(SCRIPTS_DIR))
+        from strip_pdf_autoprint import strip_pdf_actions
+    except ImportError:
+        return
+    stripped = 0
+    for year_dir in ROOT.iterdir():
+        if not year_dir.is_dir() or not re.match(r"^20\d{2}$", year_dir.name):
+            continue
+        for cat_dir in year_dir.iterdir():
+            if not cat_dir.is_dir():
+                continue
+            for pdf in cat_dir.iterdir():
+                if pdf.is_file() and pdf.suffix.lower() == ".pdf":
+                    if strip_pdf_actions(pdf):
+                        stripped += 1
+    if stripped:
+        print(f"  PDF: 移除 auto-print {stripped} 份")
+
+
+def ensure_pdfjs_patched():
+    """保證 PDF.js viewer 的 enableScripting 是 false (擋 PDF auto-print)"""
+    try:
+        patch_module = SCRIPTS_DIR / "patch_pdfjs.py"
+        if patch_module.exists():
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("patch_pdfjs", patch_module)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            ok, msg = mod.patch()
+            print(f"  PDF.js: {msg}")
+    except Exception as e:
+        print(f"  (PDF.js patch 跳過: {e})")
+
+
 def sync_parser_to_cloud():
     """把本機 update.py 內容同步到 auto_organize/scripts/parser_lib.py
     確保雲端跑跟本機一樣的 parser 規則。需要再手動 git push。
@@ -1237,6 +1274,8 @@ def main():
     print(f"  完成: 整理 {fixed} 份\n")
     print("[4/4] 重建索引...")
     build_index()
+    strip_pdf_actions_in_managed_dirs()
+    ensure_pdfjs_patched()
     write_heartbeat()
     sync_parser_to_cloud()
     print("\n全部完成。開 啟動閱讀器.bat 看結果。")

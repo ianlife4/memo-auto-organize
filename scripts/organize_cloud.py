@@ -216,9 +216,41 @@ def organize(dbx) -> dict:
             dbx.files_move_v2(src_path, dst, autorename=False)
             print(f"  [整理] {name} -> {year}/{meta['category']}/{Path(dst).name}")
             stats["moved"] += 1
+            # 順手 strip PDF 內的 auto-print JS
+            if dst.lower().endswith(".pdf"):
+                strip_pdf_in_cloud(dbx, dst)
         except ApiError as e:
             print(f"  [失敗] {name}: {e}")
     return stats
+
+
+def strip_pdf_in_cloud(dbx, path: str):
+    """下載 PDF → 移除 auto-print/JS → 上傳覆蓋"""
+    try:
+        from pdfrw import PdfReader, PdfWriter
+        import io
+        _, resp = dbx.files_download(path)
+        pdf = PdfReader(fdata=resp.content)
+        if not pdf.Root:
+            return
+        changed = False
+        for attr in ("OpenAction", "AA"):
+            if getattr(pdf.Root, attr) is not None:
+                setattr(pdf.Root, attr, None)
+                changed = True
+        if pdf.Root.Names is not None:
+            if pdf.Root.Names.JavaScript is not None:
+                pdf.Root.Names.JavaScript = None
+                changed = True
+        if not changed:
+            return
+        buf = io.BytesIO()
+        PdfWriter(buf, trailer=pdf).write()
+        from dropbox.files import WriteMode
+        dbx.files_upload(buf.getvalue(), path, mode=WriteMode.overwrite)
+        print(f"    [strip] PDF auto-print 移除")
+    except Exception as e:
+        print(f"    (strip 跳過: {e})")
 
 
 def build_entry(entry: FileMetadata, category: str, year: str) -> dict:
