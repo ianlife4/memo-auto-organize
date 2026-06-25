@@ -210,7 +210,7 @@ def organize(dbx) -> dict:
 
         year = meta["date"][:4]
         ext = "." + name.rsplit(".", 1)[-1].lower()
-        new_name = parser_lib.standardized_name(meta, ext)
+        new_name = parser_lib.standardized_name(meta, ext, name)
         dst = unique_dropbox_path(dbx, f"{ROOT_PREFIX}/{year}/{meta['category']}/{new_name}")
         try:
             dbx.files_move_v2(src_path, dst, autorename=False)
@@ -376,30 +376,42 @@ def main():
 
 
 def dedupe_cloud(dbx) -> int:
-    """掃所有歸位檔，找 _(N) 重複版，size 差 <= 100 bytes 就刪"""
+    """同 base 群組內 size 差 <= 1KB 全部刪只留一份"""
     removed = 0
     by_dir = {}
     for entry, year, cat in get_all_managed_files(dbx):
         by_dir.setdefault((year, cat), []).append(entry)
     for (year, cat), entries in by_dir.items():
-        # 建 basename → entry mapping
-        by_basename = {}
+        # 按 base 群組
+        groups = {}  # base_name → [(n, entry)]
         for e in entries:
             stem = e.name.rsplit(".", 1)[0] if "." in e.name else e.name
             ext = "." + e.name.rsplit(".", 1)[1] if "." in e.name else ""
             m = re.match(r"^(.+)_\((\d+)\)$", stem)
             if m:
                 base = m.group(1) + ext
-                original = f"{ROOT_PREFIX}/{year}/{cat}/{base}"
-                # 看原版有沒有
-                try:
-                    orig_meta = dbx.files_get_metadata(original)
-                    if hasattr(orig_meta, "size") and abs(orig_meta.size - e.size) <= 100:
+                n = int(m.group(2))
+            else:
+                base = e.name
+                n = 0
+            groups.setdefault(base, []).append((n, e))
+        for base, members in groups.items():
+            if len(members) <= 1:
+                continue
+            members.sort(key=lambda t: t[0])
+            keeper = members[0][1]
+            threshold = max(10240, int(keeper.size * 0.05))
+            for n, e in members[1:]:
+                diff = abs(e.size - keeper.size)
+                if diff <= threshold:
+                    try:
                         dbx.files_delete_v2(e.path_display)
-                        print(f"    [刪] {e.path_display} (= {original})")
+                        print(f"    [刪重複] {e.path_display} (size 差 {diff}B)")
                         removed += 1
-                except ApiError:
-                    pass
+                    except ApiError:
+                        pass
+                else:
+                    print(f"    [保留] {e.path_display} (size 差 {diff}B > {threshold}B)")
     return removed
 
 

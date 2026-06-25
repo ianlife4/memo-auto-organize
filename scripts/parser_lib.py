@@ -21,7 +21,8 @@ _TW_PREFER = [  # 台灣慣用 (post-process zhconv 結果)
     ("臺新", "台新"), ("臺積電", "台積電"), ("臺塑", "台塑"),
     ("臺化", "台化"), ("臺泥", "台泥"), ("臺灣", "台灣"),
     ("臺中", "台中"), ("臺北", "台北"), ("臺股", "台股"),
-    ("臺幣", "台幣"), ("臺電", "台電"),
+    ("臺幣", "台幣"), ("臺電", "台電"), ("臺光電", "台光電"),
+    ("臺達電", "台達電"), ("臺虹", "台虹"), ("臺勝科", "台勝科"),
     # zhconv 過度轉換「游→遊」
     ("上遊", "上游"), ("下遊", "下游"), ("中遊", "中游"),
     # zhconv 過度轉換「群→羣」(本字但台灣慣用「群」)
@@ -722,31 +723,56 @@ def sanitize_for_filename(text: str) -> str:
     return text[:60] or "report"
 
 
-def standardized_name(meta: dict, ext: str = ".pdf") -> str:
-    # 簡 → 繁 (對 topic, stock_name, broker 都套用，避免中港報告顯示簡體)
+def extract_analysts(original_name: str) -> list:
+    """從原始檔名抽出 [作者A,作者B] 名字 (中國研報常見)"""
+    if not original_name:
+        return []
+    m = re.search(r"\[([^\[\]]{2,40})\]", original_name)
+    if not m:
+        return []
+    raw = m.group(1)
+    parts = [n.strip() for n in re.split(r"[,，、;；/]", raw) if n.strip()]
+    # 過濾掉非人名 (例: 數字、空字串、頁碼)
+    return [n for n in parts if not n.isdigit() and len(n) >= 2 and len(n) <= 8]
+
+
+def _append_analysts(base_name: str, ext: str, analysts: list) -> str:
+    """把 _[作者] 附加到檔名 ext 之前。一個檔名最多放 3 個作者避免太長"""
+    if not analysts:
+        return base_name
+    sel = analysts[:3]
+    return base_name.replace(ext, f"_[{','.join(sel)}]{ext}", 1)
+
+
+def standardized_name(meta: dict, ext: str = ".pdf", original_name: str = "") -> str:
+    # 簡 → 繁
     for k in ("topic", "stock_name", "broker"):
         if meta.get(k):
             meta[k] = to_traditional(meta[k])
     ymd = meta["date"].replace("-", "")
-    if meta["category"] == "外資報告":
-        # 根據 metadata 形態決定命名
-        if meta.get("stock_code"):
+    analysts = meta.get("analysts") or extract_analysts(original_name)
+
+    def _build():
+        if meta["category"] == "外資報告":
+            if meta.get("stock_code"):
+                return f"{meta['stock_code']}_{ymd}_{meta['broker']}{ext}"
+            if meta.get("ticker"):
+                mkt = meta.get("market") or "US"
+                return f"{meta['ticker']}_{mkt}_{ymd}_{meta['broker']}{ext}"
+            topic = sanitize_for_filename(meta.get("topic") or "report")
+            return f"{ymd}_{topic}_{meta['broker']}{ext}"
+        if meta["category"] == "個股":
             return f"{meta['stock_code']}_{ymd}_{meta['broker']}{ext}"
-        if meta.get("ticker"):
-            mkt = meta.get("market") or "US"
-            return f"{meta['ticker']}_{mkt}_{ymd}_{meta['broker']}{ext}"
+        if meta["category"] == "海外個股":
+            ticker = meta.get("ticker") or meta.get("stock_code") or "X"
+            market = meta.get("market") or "US"
+            return f"{ticker}_{market}_{ymd}_{meta['broker']}{ext}"
+        if meta["category"] == "Memo":
+            return f"{meta['stock_code']}_{ymd}_memo{ext}"
         topic = sanitize_for_filename(meta.get("topic") or "report")
         return f"{ymd}_{topic}_{meta['broker']}{ext}"
-    if meta["category"] == "個股":
-        return f"{meta['stock_code']}_{ymd}_{meta['broker']}{ext}"
-    if meta["category"] == "海外個股":
-        ticker = meta.get("ticker") or meta.get("stock_code") or "X"
-        market = meta.get("market") or "US"
-        return f"{ticker}_{market}_{ymd}_{meta['broker']}{ext}"
-    if meta["category"] == "Memo":
-        return f"{meta['stock_code']}_{ymd}_memo{ext}"
-    topic = sanitize_for_filename(meta.get("topic") or "report")
-    return f"{ymd}_{topic}_{meta['broker']}{ext}"
+
+    return _append_analysts(_build(), ext, analysts)
 
 
 def unique_path(target: Path) -> Path:
@@ -836,7 +862,7 @@ def organize():
         target_dir = ROOT / year / meta["category"]
         target_dir.mkdir(parents=True, exist_ok=True)
         try:
-            naive_target = target_dir / standardized_name(meta, pdf.suffix.lower())
+            naive_target = target_dir / standardized_name(meta, pdf.suffix.lower(), pdf.name)
         except Exception as e:
             print(f"  [待處理] {pdf.name} (改名失敗: {e})")
             shutil.move(str(pdf), str(unique_path(PENDING_DIR / pdf.name)))
@@ -955,7 +981,12 @@ def guess_date_from_year(year: str, name: str) -> str:
 
 
 def dedupe_duplicates() -> int:
-    """掃所有 年份/類別/ 下檔名為 stem_(N) 的重複版，與原版比 size，相同就刪。"""
+    """掃所有 年份/類別/ 下 stem_(N) 重複版。
+    策略：
+      - 同 base 的所有版本 (原版 + _(N))，size 完全相同或差 <= 1KB 全部刪只留一個
+      - size 差超過 1KB 的版本當成不同檔案保留 (避免誤刪)
+      - 沒原版只有 _(N) 的，最小 N 改回原名
+    """
     import re as _re
     removed = 0
     for year_dir in ROOT.iterdir():
@@ -964,21 +995,36 @@ def dedupe_duplicates() -> int:
         for cat_dir in year_dir.iterdir():
             if not cat_dir.is_dir():
                 continue
+            # 收集 same-base 群組
+            groups = {}  # base_full_name → [(n, file)]
             for f in cat_dir.iterdir():
                 if not f.is_file():
                     continue
                 m = _re.match(r"^(.+)_\((\d+)\)$", f.stem)
-                if not m:
+                if m:
+                    base = f"{m.group(1)}{f.suffix}"
+                    n = int(m.group(2))
+                else:
+                    base = f.name
+                    n = 0
+                groups.setdefault(base, []).append((n, f))
+            for base, members in groups.items():
+                if len(members) <= 1:
                     continue
-                base = m.group(1)
-                original = f.with_name(f"{base}{f.suffix}")
-                if original.exists():
-                    s1, s2 = original.stat().st_size, f.stat().st_size
-                    # size 完全相同 → 必為重複；差 ≤ 100 bytes → PDF metadata 差異也算重複
-                    if abs(s1 - s2) <= 100:
-                        print(f"  [刪重複] {f.relative_to(ROOT)} (= {original.name})")
+                members.sort(key=lambda t: t[0])  # smallest n first
+                keeper_n, keeper = members[0]
+                keeper_size = keeper.stat().st_size
+                threshold = max(10240, int(keeper_size * 0.05))  # 5% 或 10KB 取大
+                for n, f in members[1:]:
+                    if not f.exists():
+                        continue
+                    diff = abs(f.stat().st_size - keeper_size)
+                    if diff <= threshold:
+                        print(f"  [刪重複] {f.relative_to(ROOT)} (= {keeper.name}, size 差 {diff}B)")
                         f.unlink()
                         removed += 1
+                    else:
+                        print(f"  [保留] {f.relative_to(ROOT)} (size 差 {diff}B > {threshold}B)")
     return removed
 
 
