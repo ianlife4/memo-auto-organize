@@ -501,16 +501,19 @@ def parse_filename(filename: str):
 
     # ===== 策略類 (券商|主題|YYYYMMDD[|細節]) =====
     # 中信|主動式ETF籌碼追蹤|20260622 / 兆豐|投資早報|20260622
-    # 中信|投資早報|20260622|2883凱基金、6533晶心科
-    m = re.match(r"^([一-鿿A-Za-z]+)\|([^|]+?)\|(\d{8})(?:\|(.+))?$", name)
+    # 國票|台股投資週報|2606222 (7 位數誤輸入: 前 6 位視為 YYMMDD)
+    m = re.match(r"^([一-鿿A-Za-z]+)\|([^|]+?)\|(\d{6,8})\d?(?:\|(.+))?$", name)
     if m:
-        brk_raw, topic, ymd, detail = m.groups()
+        brk_raw, topic, ds, detail = m.groups()
         brk = detect_broker(brk_raw) or brk_raw.strip()
         if brk:
+            if len(ds) == 8:
+                date = f"{ds[:4]}-{ds[4:6]}-{ds[6:]}"
+            else:
+                date = f"20{ds[:2]}-{ds[2:4]}-{ds[4:6]}"
             full = topic + " " + (detail or "")
             cat = classify_topic_text(full)
-            return _meta(cat, date=f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}",
-                         broker=brk, topic=topic.strip())
+            return _meta(cat, date=date, broker=brk, topic=topic.strip())
     # MS|Power Semis|Supply Driven Upcycle|20260618 (外資英文有多段)
     m = re.match(r"^([A-Z]{2,4})\|(.+)\|(\d{8})$", name)
     if m:
