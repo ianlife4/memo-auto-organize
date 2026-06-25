@@ -248,15 +248,16 @@ def build_entry(entry: FileMetadata, category: str, year: str) -> dict:
 
     rel_pdf = f"{year}/{category}/{name}"
     href = "../" + "/".join(quote(part) for part in rel_pdf.split("/"))
-    search_bits = [stem, date, category, stock_code, stock_name, topic, broker, name]
+    analysts = parser_lib.extract_analysts(name)
+    search_bits = [stem, date, category, stock_code, stock_name, topic, broker, name] + analysts
     search_text = " ".join(s for s in search_bits if s).lower()
-    # 上傳日期 (Dropbox server_modified)
     uploaded_at = entry.server_modified.strftime("%Y-%m-%d") if hasattr(entry, "server_modified") and entry.server_modified else date
 
     return {
         "id": rid,
         "date": date,
         "uploaded_at": uploaded_at,
+        "analysts": analysts,
         "category": category,
         "report_type": category,
         "title": "報告",

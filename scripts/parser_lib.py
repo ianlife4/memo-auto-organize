@@ -1022,7 +1022,9 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
 
     rel_pdf = pdf.relative_to(ROOT).as_posix()
     href = "../" + "/".join(quote(part) for part in rel_pdf.split("/"))
-    search_bits = [pdf.stem, date, category, stock_code, stock_name, topic, broker, pdf.name]
+    # 抽研究員 (從原檔名 _[作者A,作者B] 抽)
+    analysts = extract_analysts(pdf.name)
+    search_bits = [pdf.stem, date, category, stock_code, stock_name, topic, broker, pdf.name] + analysts
     search_text = " ".join(s for s in search_bits if s).lower()
     # 上傳/同步日期 (本機 mtime)
     try:
@@ -1034,6 +1036,7 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
         "id": rid,
         "date": date,
         "uploaded_at": uploaded_at,
+        "analysts": analysts,
         "category": category,
         "report_type": category,
         "title": "報告",
