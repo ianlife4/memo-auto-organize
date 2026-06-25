@@ -38,6 +38,8 @@ STATE_DIR = "/閱讀器資料"
 PENDING_DIR = f"{ROOT_PREFIX}/待處理"
 INDEX_OUTPUT = f"{ROOT_PREFIX}/閱讀器/assets/report-index.js"
 STOCK_NAMES_PATH = f"{STATE_DIR}/stock_names.json"
+ANALYSTS_CACHE_PATH = f"{STATE_DIR}/analysts_cache.json"
+ANALYSTS_CACHE_DATA = {}  # 由 main() 從 Dropbox 載入
 
 ACCEPTED_EXTS = {".pdf", ".md", ".docx", ".txt", ".zip"}
 RESERVED_NAMES = {"desktop.ini", "0_使用說明.txt"}
@@ -280,7 +282,10 @@ def build_entry(entry: FileMetadata, category: str, year: str) -> dict:
 
     rel_pdf = f"{year}/{category}/{name}"
     href = "../" + "/".join(quote(part) for part in rel_pdf.split("/"))
-    analysts = parser_lib.extract_analysts(name)
+    fname_analysts = parser_lib.extract_analysts(name)
+    cache_entry = ANALYSTS_CACHE_DATA.get(name, {}) if isinstance(ANALYSTS_CACHE_DATA, dict) else {}
+    pdf_analysts = cache_entry.get("analysts", []) if isinstance(cache_entry, dict) else []
+    analysts = list(dict.fromkeys(fname_analysts + pdf_analysts))
     search_bits = [stem, date, category, stock_code, stock_name, topic, broker, name] + analysts
     search_text = " ".join(s for s in search_bits if s).lower()
     uploaded_at = entry.server_modified.strftime("%Y-%m-%d") if hasattr(entry, "server_modified") and entry.server_modified else date
@@ -379,11 +384,13 @@ def main():
             print(f"  本機 {HEARTBEAT_THRESHOLD_MIN} 分鐘內跑過，雲端跳過")
             return
 
-    # 載 stock_names
-    print("\n[1/3] 載入 stock_names...")
+    # 載 stock_names + analysts cache
+    print("\n[1/3] 載入 stock_names + analysts cache...")
     stock_names = download_json(dbx, STOCK_NAMES_PATH)
-    parser_lib.STOCK_NAMES = stock_names  # inject
-    print(f"  {len(stock_names)} 個股號")
+    parser_lib.STOCK_NAMES = stock_names
+    global ANALYSTS_CACHE_DATA
+    ANALYSTS_CACHE_DATA = download_json(dbx, ANALYSTS_CACHE_PATH) or {}
+    print(f"  {len(stock_names)} 個股號, {len(ANALYSTS_CACHE_DATA)} 份 PDF 有 analysts cache")
 
     # 整理
     print("\n[1/3] 整理散落 PDF...")

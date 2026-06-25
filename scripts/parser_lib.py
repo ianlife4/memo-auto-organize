@@ -67,6 +67,7 @@ ROOT = Path(r"C:\Users\J.Chun\Dropbox\MEMO烏骨雞")
 READER_INDEX = ROOT / "閱讀器" / "assets" / "report-index.js"
 PENDING_DIR = ROOT / "待處理"
 STOCK_NAMES_FILE = SCRIPTS_DIR / "stock_names.json"
+ANALYSTS_CACHE_FILE = SCRIPTS_DIR / "analysts_cache.json"
 CATEGORIES = ["個股", "海外個股", "產業", "總經", "策略與定期刊物", "外資報告", "Memo"]
 
 # 國際大行 — broker 落在這裡就覆寫 category 成「外資報告」
@@ -190,6 +191,46 @@ def save_stock_names(mapping: dict) -> None:
         json.dumps(mapping, ensure_ascii=False, indent=2, sort_keys=True),
         encoding="utf-8",
     )
+
+
+def load_analysts_cache() -> dict:
+    if ANALYSTS_CACHE_FILE.exists():
+        try:
+            return json.loads(ANALYSTS_CACHE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def save_analysts_cache(cache: dict) -> None:
+    ANALYSTS_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    ANALYSTS_CACHE_FILE.write_text(
+        json.dumps(cache, ensure_ascii=False, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+
+ANALYSTS_CACHE = load_analysts_cache()
+
+
+def get_pdf_analysts(pdf_path) -> list:
+    """從 cache 拿，沒有就抽 PDF 內文 (含 cache 失效檢查)"""
+    key = pdf_path.name
+    try:
+        mtime = pdf_path.stat().st_mtime
+    except Exception:
+        mtime = 0
+    cached = ANALYSTS_CACHE.get(key)
+    if isinstance(cached, dict) and cached.get("mtime") == mtime:
+        return cached.get("analysts", [])
+    try:
+        sys.path.insert(0, str(SCRIPTS_DIR))
+        from extract_analysts import extract_from_pdf
+        analysts = extract_from_pdf(pdf_path)
+    except Exception:
+        analysts = []
+    ANALYSTS_CACHE[key] = {"mtime": mtime, "analysts": analysts}
+    return analysts
 
 
 STOCK_NAMES = load_stock_names()
@@ -1000,6 +1041,7 @@ def build_index():
         encoding="utf-8",
     )
     print(f"\n  寫入 閱讀器\\assets\\report-index.js  ({len(reports)} 筆)")
+    save_analysts_cache(ANALYSTS_CACHE)
 
 
 def build_entry(pdf: Path, category: str, year: str) -> dict:
@@ -1028,8 +1070,11 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
 
     rel_pdf = pdf.relative_to(ROOT).as_posix()
     href = "../" + "/".join(quote(part) for part in rel_pdf.split("/"))
-    # 抽研究員 (從原檔名 _[作者A,作者B] 抽)
-    analysts = extract_analysts(pdf.name)
+    # 抽研究員 (合併: 檔名 _[作者] + PDF 內文)
+    fname_analysts = extract_analysts(pdf.name)
+    pdf_analysts = get_pdf_analysts(pdf)
+    # 合併去重 (保留順序: 檔名來源優先)
+    analysts = list(dict.fromkeys(fname_analysts + pdf_analysts))
     search_bits = [pdf.stem, date, category, stock_code, stock_name, topic, broker, pdf.name] + analysts
     search_text = " ".join(s for s in search_bits if s).lower()
     # 上傳/同步日期 (本機 mtime)
