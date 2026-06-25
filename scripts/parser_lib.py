@@ -715,6 +715,11 @@ def clean_topic(name: str, date: str, broker: str) -> str:
     if broker:
         topic = topic.replace(broker, "")
     topic = re.sub(r"投顧\(.+?\)", "", topic)
+    # strip [作者A,作者B] (analysts 已被 extract_analysts 取走，topic 不留)
+    topic = re.sub(r"\[[^\[\]]+\]", "", topic)
+    # strip 中國研報頁數標記跟尾巴隨機碼殘留
+    topic = re.sub(r"【\d+\s*[页頁]】", "", topic)
+    topic = re.sub(r"\s+[A-Za-z]{2}\d{2}\s*$", "", topic)  # 尾巴 _fA35 殘留
     topic = re.sub(r"[_\-\s]+", " ", topic).strip(" _-—")
     return topic or "report"
 
