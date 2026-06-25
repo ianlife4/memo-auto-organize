@@ -760,6 +760,10 @@ def standardized_name(meta: dict, ext: str = ".pdf", original_name: str = "") ->
     analysts = meta.get("analysts") or extract_analysts(original_name)
 
     def _build():
+        # 統一規則:
+        #   有股號  : {股號}_{日期}_{券商}
+        #   有 ticker: {ticker}_{市場}_{日期}_{券商}
+        #   無代號  : {主題}_{日期}_{券商}    ← 主題在前
         if meta["category"] == "外資報告":
             if meta.get("stock_code"):
                 return f"{meta['stock_code']}_{ymd}_{meta['broker']}{ext}"
@@ -767,21 +771,21 @@ def standardized_name(meta: dict, ext: str = ".pdf", original_name: str = "") ->
                 mkt = meta.get("market") or "US"
                 return f"{meta['ticker']}_{mkt}_{ymd}_{meta['broker']}{ext}"
             topic = sanitize_for_filename(meta.get("topic") or "report")
-            return f"{ymd}_{topic}_{meta['broker']}{ext}"
+            return f"{topic}_{ymd}_{meta['broker']}{ext}"
         if meta["category"] == "個股":
             return f"{meta['stock_code']}_{ymd}_{meta['broker']}{ext}"
         if meta["category"] == "海外個股":
             ticker = meta.get("ticker") or meta.get("stock_code")
             if not ticker or ticker == "X":
-                # 沒 ticker → 降級用「主題」命名 (不再用 X placeholder)
                 topic = sanitize_for_filename(meta.get("topic") or meta.get("stock_name") or "report")
-                return f"{ymd}_{topic}_{meta['broker']}{ext}"
+                return f"{topic}_{ymd}_{meta['broker']}{ext}"
             market = meta.get("market") or "US"
             return f"{ticker}_{market}_{ymd}_{meta['broker']}{ext}"
         if meta["category"] == "Memo":
             return f"{meta['stock_code']}_{ymd}_memo{ext}"
+        # 其他類別（產業/總經/策略/Fallback）
         topic = sanitize_for_filename(meta.get("topic") or "report")
-        return f"{ymd}_{topic}_{meta['broker']}{ext}"
+        return f"{topic}_{ymd}_{meta['broker']}{ext}"
 
     return _append_analysts(_build(), ext, analysts)
 
