@@ -306,6 +306,8 @@ def parse_filename(filename: str):
     raw = re.sub(r"\.(pdf|md|docx|txt|zip)$", "", raw, flags=re.IGNORECASE)
     # 移除尾部 _(1) (2) (3) 重複編號 (含連帶的尾底線/空白)
     raw = re.sub(r"[_\s]*\(\d+\)$", "", raw)
+    # 移除尾部 _[作者A,作者B] (避免 standardized 後再被 parse 時雙重附加)
+    raw = re.sub(r"_\[[^\[\]]+\]\s*$", "", raw)
     raw = raw.rstrip("_- ")
     # 移除網站浮水印/廣告
     raw = re.sub(r"【洞[一-鿿]研报[^】]*】", "", raw)
