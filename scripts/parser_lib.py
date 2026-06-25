@@ -771,7 +771,11 @@ def standardized_name(meta: dict, ext: str = ".pdf", original_name: str = "") ->
         if meta["category"] == "個股":
             return f"{meta['stock_code']}_{ymd}_{meta['broker']}{ext}"
         if meta["category"] == "海外個股":
-            ticker = meta.get("ticker") or meta.get("stock_code") or "X"
+            ticker = meta.get("ticker") or meta.get("stock_code")
+            if not ticker or ticker == "X":
+                # 沒 ticker → 降級用「主題」命名 (不再用 X placeholder)
+                topic = sanitize_for_filename(meta.get("topic") or meta.get("stock_name") or "report")
+                return f"{ymd}_{topic}_{meta['broker']}{ext}"
             market = meta.get("market") or "US"
             return f"{ticker}_{market}_{ymd}_{meta['broker']}{ext}"
         if meta["category"] == "Memo":
@@ -933,8 +937,11 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
 
     if category == "海外個股":
         ticker = meta.get("ticker") or stock_code
+        # X 是 placeholder 不該顯示
+        if ticker == "X":
+            ticker = ""
         rid = f"{ticker}_{market}_{date.replace('-', '')}_{broker}" if (ticker and date) else pdf.stem
-        display_subject = f"{ticker} {stock_name}".strip() if ticker else (stock_name or pdf.stem)
+        display_subject = f"{ticker} {stock_name}".strip() if ticker else (stock_name or topic or pdf.stem)
     elif category == "個股":
         rid = f"{stock_code}_{date.replace('-', '')}_{broker}" if (stock_code and date) else pdf.stem
         display_subject = f"{stock_code} {stock_name}".strip() if stock_code else pdf.stem
