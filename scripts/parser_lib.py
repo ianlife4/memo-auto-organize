@@ -1148,8 +1148,13 @@ def dedupe_by_md5() -> int:
                 for h, dups in by_md5.items():
                     if len(dups) <= 1:
                         continue
-                    # 保留檔名最短最乾淨那份
-                    dups.sort(key=lambda f: (len(f.name), f.name))
+                    # 保留檔名「較乾淨」那份: 非數字開頭優先、有意義詞優先、長度其次
+                    def cleanness(f):
+                        s = f.stem
+                        starts_digit = bool(_re.match(r"^\d", s))
+                        has_topic = bool(_re.search(r"[A-Za-z]{4,}|[一-鿿]{2,}", s))
+                        return (starts_digit, not has_topic, -len(s))
+                    dups.sort(key=cleanness)
                     keeper = dups[0]
                     for f in dups[1:]:
                         print(f"  [刪 MD5 重複] {f.relative_to(ROOT)} (= {keeper.name})")
