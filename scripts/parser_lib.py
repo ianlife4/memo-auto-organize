@@ -1119,6 +1119,45 @@ def dedupe_duplicates() -> int:
     return removed
 
 
+def dedupe_by_md5() -> int:
+    """同類別內 size 完全相同 → 比 MD5 → 同 hash 刪一份 (保留檔名較短較整齊那份)"""
+    import hashlib
+    import re as _re
+    removed = 0
+    for year_dir in ROOT.iterdir():
+        if not year_dir.is_dir() or not _re.match(r"^20\d{2}$", year_dir.name):
+            continue
+        for cat_dir in year_dir.iterdir():
+            if not cat_dir.is_dir():
+                continue
+            by_size = {}
+            for f in cat_dir.iterdir():
+                if not f.is_file():
+                    continue
+                by_size.setdefault(f.stat().st_size, []).append(f)
+            for size, files in by_size.items():
+                if len(files) <= 1:
+                    continue
+                by_md5 = {}
+                for f in files:
+                    try:
+                        h = hashlib.md5(f.read_bytes()).hexdigest()
+                    except Exception:
+                        continue
+                    by_md5.setdefault(h, []).append(f)
+                for h, dups in by_md5.items():
+                    if len(dups) <= 1:
+                        continue
+                    # 保留檔名最短最乾淨那份
+                    dups.sort(key=lambda f: (len(f.name), f.name))
+                    keeper = dups[0]
+                    for f in dups[1:]:
+                        print(f"  [刪 MD5 重複] {f.relative_to(ROOT)} (= {keeper.name})")
+                        f.unlink()
+                        removed += 1
+    return removed
+
+
 def fix_orphan_duplicates() -> int:
     """孤立的 _(N) 版本（沒對應的 _.pdf 原版）→ 改回 _.pdf"""
     import re as _re
@@ -1183,6 +1222,7 @@ def main():
     print(f"  完成: 整理 {moved} 份、待處理 {pending} 份、原地 {skipped} 份\n")
     print("[2/4] 自動刪重複...")
     removed = dedupe_duplicates()
+    removed += dedupe_by_md5()
     print(f"  完成: 刪除 {removed} 份重複\n")
     print("[3/4] 整理孤立 _(N) → 原名...")
     fixed = fix_orphan_duplicates()

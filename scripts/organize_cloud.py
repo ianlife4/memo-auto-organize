@@ -363,9 +363,9 @@ def main():
         upload_text(dbx, STOCK_NAMES_PATH,
                     json.dumps(parser_lib.STOCK_NAMES, ensure_ascii=False, indent=2))
 
-    # 刪重複 _(N) (跟本機 update.py 的 dedupe_duplicates 等效)
-    print("\n[2/3] 刪重複 _(N)...")
-    removed = dedupe_cloud(dbx)
+    # 刪重複 (size+hash)
+    print("\n[2/3] 刪重複...")
+    removed = dedupe_cloud(dbx) + dedupe_cloud_by_hash(dbx)
     print(f"  刪 {removed} 份重複")
 
     # 重建 index
@@ -374,6 +374,34 @@ def main():
     print(f"  寫入 {INDEX_OUTPUT} ({n} 筆)")
 
     print("\n完成")
+
+
+def dedupe_cloud_by_hash(dbx) -> int:
+    """同類別內 content_hash 相同 → 重複，保留檔名較短"""
+    removed = 0
+    by_dir = {}
+    for entry, year, cat in get_all_managed_files(dbx):
+        by_dir.setdefault((year, cat), []).append(entry)
+    for (year, cat), entries in by_dir.items():
+        by_hash = {}
+        for e in entries:
+            h = getattr(e, "content_hash", None)
+            if not h:
+                continue
+            by_hash.setdefault(h, []).append(e)
+        for h, dups in by_hash.items():
+            if len(dups) <= 1:
+                continue
+            dups.sort(key=lambda e: (len(e.name), e.name))
+            keeper = dups[0]
+            for e in dups[1:]:
+                try:
+                    dbx.files_delete_v2(e.path_display)
+                    print(f"    [刪 hash 重複] {e.path_display} (= {keeper.name})")
+                    removed += 1
+                except ApiError:
+                    pass
+    return removed
 
 
 def dedupe_cloud(dbx) -> int:
