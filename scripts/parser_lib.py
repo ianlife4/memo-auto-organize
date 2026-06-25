@@ -913,10 +913,16 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
     href = "../" + "/".join(quote(part) for part in rel_pdf.split("/"))
     search_bits = [pdf.stem, date, category, stock_code, stock_name, topic, broker, pdf.name]
     search_text = " ".join(s for s in search_bits if s).lower()
+    # 上傳/同步日期 (本機 mtime)
+    try:
+        uploaded_at = datetime.fromtimestamp(pdf.stat().st_mtime).strftime("%Y-%m-%d")
+    except Exception:
+        uploaded_at = date
 
     return {
         "id": rid,
         "date": date,
+        "uploaded_at": uploaded_at,
         "category": category,
         "report_type": category,
         "title": "報告",
