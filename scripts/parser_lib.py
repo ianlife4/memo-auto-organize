@@ -250,6 +250,8 @@ BROKERS = [
     # 亞洲獨立研究機構
     ("Aletheia", "Aletheia"), ("aletheia", "Aletheia"),
     ("CGS", "CGS"), ("Maybank", "Maybank"),
+    # 純大寫 broker 變體 (case-sensitive substring match)
+    ("CITI", "Citi"), ("HSBC", "HSBC"),
 ]
 
 OVERSEAS_MARKETS = ("US", "HK", "JP", "CN", "KR", "UK")
@@ -567,13 +569,23 @@ def parse_filename(filename: str):
         brk = detect_broker(brk_raw) or brk_raw.upper()
         return _meta("個股", date=f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}",
                      stock_code=code, stock_name=cname, broker=brk, topic=topic.strip())
-    # 20260621_JPM_Nan Ya Plastics Corp → 海外個股(無 ticker, 純英文)
+    # 20260624_MTK_CITI / 20260621_JPM_Nan Ya Plastics Corp
+    # 順序可能是「YYYYMMDD_券商_主題」或「YYYYMMDD_ticker_券商」，
+    # 用 detect_broker 判斷哪個 token 是已知 broker
     m = re.match(r"^(\d{8})_([A-Z]{2,5})_(.+)$", name)
     if m:
-        ymd, brk_raw, topic = m.groups()
-        brk = detect_broker(brk_raw) or brk_raw.upper()
+        ymd, a, b = m.groups()
+        brk_a = detect_broker(a)
+        brk_b_short = detect_broker(b) if len(b) <= 8 and b.isalpha() else ""
+        if brk_b_short and not brk_a:
+            # b 是 broker、a 是 ticker (例: 20260624_MTK_CITI)
+            return _meta("海外個股", date=f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}",
+                         ticker=a, market="US", stock_name=a,
+                         broker=brk_b_short)
+        # 預設: a 是 broker (例: 20260621_JPM_Nan Ya Plastics Corp)
+        brk = brk_a or a.upper()
         return _meta("海外個股", date=f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}",
-                     broker=brk, topic=topic.strip(), stock_name=topic.strip())
+                     broker=brk, topic=b.strip(), stock_name=b.strip())
     # YYYYMMDD_NN_中文券商_YYYYMMDD_英文主題 (集邦那種雙日期)
     m = re.match(r"^\d{8}_\d{1,2}_([一-鿿A-Za-z]+)_(\d{8})_(.+)$", name)
     if m:
