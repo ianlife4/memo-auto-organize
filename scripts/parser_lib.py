@@ -597,6 +597,15 @@ def parse_filename(filename: str):
             return _meta(cat, date=f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}",
                          broker=brk, topic=topic)
 
+    # ===== 中國研報 (Pattern D: YYYYMMDD-中國券商-主題.pdf) =====
+    # 20240910-国联证券-小金属行业深度研究：xxx.pdf
+    m = re.match(r"^(\d{8})-([一-鿿]+证券)-(.+)$", name)
+    if m:
+        ymd, brk, topic = m.groups()
+        cat = classify_topic_text(topic + " " + name)
+        return _meta(cat, date=f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}",
+                     broker=brk, topic=topic.strip())
+
     # ===== 中國研報網站【洞见研报】(Pattern B) =====
     # 【东兴证券】电子行业2026半年度策略：xxx【洞见研报DJyanbao.com】
     m = re.match(r"^【([一-鿿A-Za-z]+)】(.+?)(?:【洞[一-鿿]+研报[^】]+】)?$", name)
