@@ -266,7 +266,10 @@ DATE_RE = re.compile(r"(20\d{6})")  # YYYYMMDD
 
 
 def normalize(text: str) -> str:
-    return unicodedata.normalize("NFKC", text)
+    text = unicodedata.normalize("NFKC", text)
+    # 移除開頭過長 hash 前綴 (Google Drive ID / SHA hash 等，後面接有效 metadata)
+    text = re.sub(r"^[A-F0-9]{20,}[_\s]+", "", text, flags=re.IGNORECASE)
+    return text
 
 
 def detect_broker(text: str) -> str:
