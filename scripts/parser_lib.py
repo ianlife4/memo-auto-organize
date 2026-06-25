@@ -253,6 +253,12 @@ BROKERS = [
     ("CGS", "CGS"), ("Maybank", "Maybank"),
     # 純大寫 broker 變體 (case-sensitive substring match)
     ("CITI", "Citi"), ("HSBC", "HSBC"),
+    # 報紙 / 新聞媒體
+    ("工商時報", "工商時報"), ("經濟日報", "經濟日報"),
+    ("鉅亨網", "鉅亨網"), ("自由時報", "自由時報"),
+    ("聯合報", "聯合報"), ("中國時報", "中國時報"),
+    ("哈燒新聞", "哈燒新聞"), ("MoneyDJ", "MoneyDJ"),
+    ("DIGITIMES", "DIGITIMES"),
 ]
 
 OVERSEAS_MARKETS = ("US", "HK", "JP", "CN", "KR", "UK")
@@ -631,6 +637,47 @@ def parse_filename(filename: str):
         return _meta(cat, date=f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}",
                      broker=brk, topic=topic.strip())
 
+    # ===== 報紙: 6.22 工商時報 / 6.23 經濟日報 =====
+    m = re.match(r"^(\d{1,2})\.(\d{1,2})\s+(.+)$", name)
+    if m:
+        mm, dd, paper = m.groups()
+        brk = detect_broker(paper)
+        if brk:
+            year = datetime.now().year
+            try:
+                date = f"{year:04d}-{int(mm):02d}-{int(dd):02d}"
+                return _meta("策略與定期刊物", date=date, broker=brk, topic=paper.strip())
+            except ValueError:
+                pass
+
+    # ===== 新聞摘要 / 哈燒新聞 開頭 + YYYYMMDD =====
+    m = re.match(r"^(新聞摘要|哈燒新聞)\s*[\.\s]?(\d{4}\.?\d{2}\.?\d{2}|\d{8}).*$", name)
+    if m:
+        brk_raw, ymd = m.groups()
+        ymd = ymd.replace(".", "")
+        return _meta("策略與定期刊物",
+                     date=f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}",
+                     broker=brk_raw, topic=brk_raw)
+
+    # ===== 個股長格式: 2303_聯電_2026-05-21_廣發_Jeff-Pu_Buy_135 =====
+    m = re.match(r"^(\d{4})_([一-鿿]+)_(\d{4}-\d{2}-\d{2})_(.+)$", name)
+    if m:
+        code, cname, date, rest = m.groups()
+        brk = detect_broker(rest) or rest.split("_", 1)[0]
+        return _meta("個股", date=date, stock_code=code,
+                     stock_name=cname, broker=brk)
+
+    # ===== 用戶新格式: 主題_YYYYMMDD_券商 (主題在前) =====
+    m = re.match(r"^(.+?)_(\d{8})_([一-鿿A-Za-z]+)$", name)
+    if m:
+        topic, ymd, brk_raw = m.groups()
+        # 排除「YYYYMMDD_xxx_xxx」誤匹配 (topic 是 8 位數)
+        if not re.match(r"^\d{8}$", topic):
+            brk = detect_broker(brk_raw) or brk_raw
+            cat = classify_topic_text(topic + " " + name)
+            return _meta(cat, date=f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}",
+                         broker=brk, topic=topic.strip())
+
     # ===== 中國研報網站【洞见研报】(Pattern B) =====
     # 【东兴证券】电子行业2026半年度策略：xxx【洞见研报DJyanbao.com】
     m = re.match(r"^【([一-鿿A-Za-z]+)】(.+?)(?:【洞[一-鿿]+研报[^】]+】)?$", name)
@@ -687,6 +734,26 @@ def parse_filename(filename: str):
                              broker=broker, topic=m.group(1).strip())
             except ValueError:
                 pass
+
+    # 沒 date 但有 broker → 用今天 fallback
+    if not date and broker:
+        date = datetime.now().strftime("%Y-%m-%d")
+        topic = clean_topic(name, date, broker)
+        cat = classify_topic_text(topic + " " + name)
+        return _meta(cat, date=date, broker=broker, topic=topic)
+
+    # 最終 fallback: 有意義主題但完全沒券商沒日期 → 「未知」+ today
+    # 排除純亂碼 (純 hash / GUID / 純數字)
+    is_garbage = (
+        bool(re.match(r"^[A-F0-9\-{}]{16,}$", name, re.IGNORECASE))  # GUID / hex hash
+        or bool(re.match(r"^[A-Za-z0-9]{30,}$", name))  # Google Drive ID 等長串
+        or bool(re.match(r"^\d{10,}", name))  # 開頭 10+ 位純數字
+    )
+    if not is_garbage and len(name) >= 5:
+        date = date or datetime.now().strftime("%Y-%m-%d")
+        topic = clean_topic(name, date, "")
+        cat = classify_topic_text(topic + " " + name)
+        return _meta(cat, date=date, broker="未知", topic=topic)
 
     return None
 
