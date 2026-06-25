@@ -579,6 +579,13 @@ def parse_filename(filename: str):
         brk_b_short = detect_broker(b) if len(b) <= 8 and b.isalpha() else ""
         if brk_b_short and not brk_a:
             # b 是 broker、a 是 ticker (例: 20260624_MTK_CITI)
+            # a 若是台股 alias → 升級「個股」
+            for tw_code, aliases in STOCK_ALIASES.items():
+                if any(a == ali or a.upper() == ali.upper() for ali in aliases):
+                    return _meta("個股", date=f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}",
+                                 stock_code=tw_code,
+                                 stock_name=STOCK_NAMES.get(tw_code, a),
+                                 broker=brk_b_short)
             return _meta("海外個股", date=f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}",
                          ticker=a, market="US", stock_name=a,
                          broker=brk_b_short)
