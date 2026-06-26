@@ -901,7 +901,14 @@ def standardized_name(meta: dict, ext: str = ".pdf", original_name: str = "") ->
         topic = sanitize_for_filename(meta.get("topic") or "report")
         return f"{topic}_{ymd}_{meta['broker']}{ext}"
 
-    return _append_analysts(_build(), ext, analysts)
+    base = _append_analysts(_build(), ext, analysts)
+    # 保留原檔名「_long / _short / _full / _summary / _v\d+」版本標記
+    if original_name:
+        vm = re.search(r"_(long|short|full|summary|brief|flash|update|v\d+)(?:\.[a-z]+)?$",
+                       original_name, re.IGNORECASE)
+        if vm and vm.group(1).lower() not in base.lower():
+            base = base.replace(ext, f"_{vm.group(1).lower()}{ext}")
+    return base
 
 
 def unique_path(target: Path) -> Path:
