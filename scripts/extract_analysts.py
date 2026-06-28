@@ -39,20 +39,33 @@ def extract_from_text(text: str) -> list:
 
     def add(name: str):
         n = name.strip()
+        # 過濾換行/tab/特殊字元
+        if "\n" in n or "\t" in n:
+            # 換行往往是 PDF 抽文字殘留，取 \n 後段
+            n = n.split("\n")[-1].strip()
         if not n or n in seen or len(n) < 2 or len(n) > 40:
             return
         if n in BLACKLIST or any(b in n for b in BLACKLIST):
             return
         is_cjk = bool(re.search(r"[一-鿿]", n))
         if is_cjk:
-            # 中文姓名: 2-4 字，無英文/數字噪訊
             if len(n) > 4 or re.search(r"[A-Za-z0-9]", n):
                 return
         else:
-            # 英文姓名: 拒絕全大寫，需含小寫+空白
+            # 英文姓名規則
             if n.isupper():
                 return
-            if not (re.search(r"[a-z]", n) and " " in n):
+            tokens = n.split()
+            if len(tokens) < 2:
+                return
+            # 拒絕「縮寫太多」的：每個 token 都 < 3 字 (例: "Minhp Yjs")
+            if all(len(t) <= 3 for t in tokens):
+                return
+            # 第一個 token 至少 3 字 (避免 "Hc Hsu" 開頭縮寫)
+            if len(tokens[0]) < 3:
+                return
+            # 全部 token 都要含小寫
+            if not all(re.search(r"[a-z]", t) for t in tokens):
                 return
         seen.add(n)
         found.append(n)
