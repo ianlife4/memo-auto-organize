@@ -1190,10 +1190,10 @@ def guess_date_from_year(year: str, name: str) -> str:
 
 def dedupe_duplicates() -> int:
     """掃所有 年份/類別/ 下 stem_(N) 重複版。
-    策略：
-      - 同 base 的所有版本 (原版 + _(N))，size 完全相同或差 <= 1KB 全部刪只留一個
-      - size 差超過 1KB 的版本當成不同檔案保留 (避免誤刪)
-      - 沒原版只有 _(N) 的，最小 N 改回原名
+    策略 (強制 dedupe)：
+      - 同 base 的所有版本 (原版 + _(N))，留 size 最大那份 (內容最完整)
+      - 其他全刪 (即使 size 差很多)
+      - 若留下的是 _(N)，rename 回原名
     """
     import re as _re
     removed = 0
@@ -1219,20 +1219,22 @@ def dedupe_duplicates() -> int:
             for base, members in groups.items():
                 if len(members) <= 1:
                     continue
-                members.sort(key=lambda t: t[0])  # smallest n first
-                keeper_n, keeper = members[0]
-                keeper_size = keeper.stat().st_size
-                threshold = max(10240, int(keeper_size * 0.05))  # 5% 或 10KB 取大
-                for n, f in members[1:]:
+                # 留 size 最大那個 (內容最完整)
+                members_sized = [(n, f, f.stat().st_size) for n, f in members]
+                members_sized.sort(key=lambda t: -t[2])
+                keeper_n, keeper, keeper_size = members_sized[0]
+                for n, f, sz in members_sized[1:]:
                     if not f.exists():
                         continue
-                    diff = abs(f.stat().st_size - keeper_size)
-                    if diff <= threshold:
-                        print(f"  [刪重複] {f.relative_to(ROOT)} (= {keeper.name}, size 差 {diff}B)")
-                        f.unlink()
-                        removed += 1
-                    else:
-                        print(f"  [保留] {f.relative_to(ROOT)} (size 差 {diff}B > {threshold}B)")
+                    print(f"  [強制刪重複] {f.relative_to(ROOT)} ({sz}B, 留較大 {keeper.name} {keeper_size}B)")
+                    f.unlink()
+                    removed += 1
+                # 若 keeper 是 _(N) 後綴，rename 回 base 名
+                if keeper_n > 0:
+                    new_path = keeper.parent / base
+                    if not new_path.exists():
+                        print(f"  [還原檔名] {keeper.name} → {new_path.name}")
+                        keeper.rename(new_path)
     return removed
 
 
