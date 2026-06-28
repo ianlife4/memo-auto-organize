@@ -98,9 +98,9 @@ def extract_from_text(text: str) -> list:
     ):
         add(m)
 
-    # 5. 中文姓名: 「研究員：王小明 / 分析師：xxx」(合庫、富邦、元富、群益、統一等本土券商)
+    # 5. 中文姓名: 「研究員：王小明 / 研究員/張書明 / 分析師-xxx」
     for m in re.findall(
-        r"(?:研究員|分析師|撰寫人|報告人|證券分析師|產業分析師|策略分析師)[：:\s]+([一-鿿]{2,4})",
+        r"(?:研究員|分析師|撰寫人|報告人|證券分析師|產業分析師|策略分析師)[/／：:\-\s]+([一-鿿]{2,4})",
         text,
     ):
         add(m)
@@ -113,10 +113,18 @@ def extract_from_text(text: str) -> list:
     ):
         add(m)
 
-    # 7. 中文姓名後跟電話/職稱再接 email (富邦等)
+    # 7. 中文姓名後跟電話/職稱再接 email (富邦)
     # 例: 「楊惟婷\n886-2-27815995#37015\nweiting.yang@fubon.com」
     for m in re.findall(
         r"(?:\n|^)([一-鿿]{2,4})\s*\n(?:[^\n]{0,80}\n){1,3}\s*[\w.\-]+@[\w.\-]+",
+        text,
+    ):
+        add(m)
+
+    # 8. 中文姓名 + 同一行 email (永豐、第一金)
+    # 例: 「陳奕均 fion.chen@sinopac.com」
+    for m in re.findall(
+        r"([一-鿿]{2,4})\s+[A-Za-z][\w.\-]*@[\w.\-]+",
         text,
     ):
         add(m)
