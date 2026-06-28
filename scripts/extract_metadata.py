@@ -33,10 +33,19 @@ CURRENCY_MAP = {
     "SGD": "SGD",
 }
 
+TARGET_PATTERNS_2COL = [
+    # 統一/凱基等本土券商表格: 「目標價\n上次值\n本次值」→ 取本次
+    # 用 "本次" header 提示
+    (
+        r"上次[\s\S]{0,30}本次[\s\S]{0,200}?目標[价價]\s*[\n\r\s]+([\d,]+\.?\d*)\s*[\n\r\s]+([\d,]+\.?\d*)",
+        2,  # 取 group 2 (本次)
+    ),
+]
+
 TARGET_PATTERNS = [
     # 「Target price\n NT$80.00」「Target Price: NT$5,950」
     r"(?:Target\s*[Pp]rice|Price\s*[Tt]arget)(?:\s*\([^\)]*\))?\s*[:：]?\s*\n?\s*(NT\$|US\$|HK\$|RMB|JPY|EUR|GBP|SGD|\$)\s*([\d,]+\.?\d*)",
-    # 「目標價: 80 元」「目標價(元): 80」 (台/中)
+    # 「目標價: 80 元」「目標價(元): 80」 (台/中) 單值
     r"目標?[价價]\s*[（(]?\s*[元美\w]*\s*[)）]?\s*[:：\s]+\s*(NT\$|US\$|HK\$|RMB|\$)?\s*([\d,]+\.?\d*)",
     # 「PT NT$140」「PT: $XXX」 (外資簡寫)
     r"\bPT\s*[:：]?\s*(NT\$|US\$|HK\$|RMB|\$)\s*([\d,]+\.?\d*)",
@@ -44,7 +53,21 @@ TARGET_PATTERNS = [
 
 
 def extract_target_price(text: str) -> dict:
-    """從 text 抽出目標價"""
+    """從 text 抽出目標價。優先處理「上次/本次」雙欄取本次"""
+    # 1. 先試雙欄格式
+    for pat, group_idx in TARGET_PATTERNS_2COL:
+        m = re.search(pat, text)
+        if not m:
+            continue
+        value_str = m.group(group_idx).replace(",", "")
+        try:
+            value = float(value_str)
+        except ValueError:
+            continue
+        if value <= 0 or value > 1e8:
+            continue
+        return {"raw": value_str, "currency": "NTD", "value": value}
+    # 2. 單值 patterns
     for pat in TARGET_PATTERNS:
         m = re.search(pat, text)
         if not m:
@@ -55,7 +78,7 @@ def extract_target_price(text: str) -> dict:
             value = float(value_str)
         except ValueError:
             continue
-        if value <= 0 or value > 1e8:  # 過濾噪訊 (太小或太大)
+        if value <= 0 or value > 1e8:
             continue
         currency = CURRENCY_MAP.get(currency_raw, currency_raw)
         return {
