@@ -957,10 +957,38 @@ def collect_files():
     return files
 
 
+def convert_office_files_in_root():
+    """根目錄掃到 .pptx/.docx/.xlsx → 轉 PDF (原檔保留)"""
+    try:
+        sys.path.insert(0, str(SCRIPTS_DIR))
+        import convert_office
+    except ImportError:
+        return 0
+    if not convert_office.is_available():
+        return 0
+    converted = 0
+    for f in ROOT.iterdir():
+        if not f.is_file() or f.suffix.lower() not in convert_office.OFFICE_EXTS:
+            continue
+        # 若同名 .pdf 已存在就 skip
+        pdf_existing = f.with_suffix(".pdf")
+        if pdf_existing.exists():
+            continue
+        result = convert_office.convert_to_pdf(f)
+        if result:
+            print(f"  [轉 PDF] {f.name} → {result.name}")
+            converted += 1
+    return converted
+
+
 def organize():
     moved, pending, skipped = 0, 0, 0
     PENDING_DIR.mkdir(exist_ok=True)
     learned = 0
+    # 整理前先把 Office 檔案轉成 PDF (原檔留著)
+    converted = convert_office_files_in_root()
+    if converted:
+        print(f"  ({converted} 份 Office 檔已轉 PDF)")
     for pdf in sorted(collect_files()):
         # zip 一律移待處理
         if pdf.suffix.lower() == ".zip":

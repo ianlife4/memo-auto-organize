@@ -402,6 +402,9 @@ def main():
         upload_text(dbx, STOCK_NAMES_PATH,
                     json.dumps(parser_lib.STOCK_NAMES, ensure_ascii=False, indent=2))
 
+    # Office (PPT/Word/Excel) 轉 PDF (雲端 Ubuntu 預裝 LibreOffice)
+    convert_office_files_in_cloud(dbx)
+
     # 刪重複 (size+hash)
     print("\n[2/3] 刪重複...")
     removed = dedupe_cloud(dbx) + dedupe_cloud_by_hash(dbx)
@@ -413,6 +416,54 @@ def main():
     print(f"  寫入 {INDEX_OUTPUT} ({n} 筆)")
 
     print("\n完成")
+
+
+OFFICE_EXTS = (".pptx", ".ppt", ".docx", ".doc", ".xlsx", ".xls")
+
+
+def convert_office_files_in_cloud(dbx):
+    """雲端把所有 office 檔轉成 PDF (LibreOffice 在 ubuntu runner 預裝)"""
+    import subprocess
+    import tempfile
+    import shutil
+    if not shutil.which("soffice") and not shutil.which("libreoffice"):
+        return
+    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    converted = 0
+    # 列所有 office 檔
+    for entry, year, cat in get_all_managed_files(dbx):
+        if not entry.name.lower().endswith(OFFICE_EXTS):
+            continue
+        # 看同位置 .pdf 是否已存在
+        pdf_name = entry.name.rsplit(".", 1)[0] + ".pdf"
+        pdf_path = f"{ROOT_PREFIX}/{year}/{cat}/{pdf_name}"
+        if file_exists(dbx, pdf_path):
+            continue
+        try:
+            # 下載 office 到 tempfile
+            _, resp = dbx.files_download(entry.path_display)
+            with tempfile.TemporaryDirectory() as td:
+                src = f"{td}/{entry.name}"
+                with open(src, "wb") as fp:
+                    fp.write(resp.content)
+                proc = subprocess.run(
+                    [soffice, "--headless", "--convert-to", "pdf",
+                     "--outdir", td, src],
+                    capture_output=True, timeout=180,
+                )
+                if proc.returncode != 0:
+                    continue
+                out_pdf = f"{td}/{pdf_name}"
+                if not Path(out_pdf).exists():
+                    continue
+                with open(out_pdf, "rb") as fp:
+                    dbx.files_upload(fp.read(), pdf_path, mode=WriteMode.add)
+                converted += 1
+                print(f"  [轉 PDF] {entry.name} → {pdf_name}")
+        except Exception as e:
+            print(f"  [轉檔失敗] {entry.name}: {e}")
+    if converted:
+        print(f"  (共轉 {converted} 份)")
 
 
 def dedupe_cloud_by_hash(dbx) -> int:
