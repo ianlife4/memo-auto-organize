@@ -111,14 +111,27 @@ def extract_target_price(text: str) -> dict:
     return {}
 
 
+def extract_pdf_title(doc) -> str:
+    """從 PDF metadata 抽 title，沒則用第一頁首字串"""
+    md = doc.metadata or {}
+    title = (md.get("title") or "").strip()
+    # 排除無意義的 PDF metadata title
+    bad_titles = {"untitled", "document", "report", "microsoft word", ""}
+    if title and title.lower() not in bad_titles and len(title) > 3:
+        # 清掉常見前綴
+        title = re.sub(r"^(M\s+)?(Update|Flash|Note|Report)\s+", "", title)
+        return title.strip()
+    return ""
+
+
 def extract_metadata(pdf_path, max_pages: int = 3) -> dict:
-    """一次開 PDF 抽 analysts + target_price"""
+    """一次開 PDF 抽 analysts + target_price + pdf_title"""
     if not fitz:
-        return {"analysts": [], "target_price": {}}
+        return {"analysts": [], "target_price": {}, "pdf_title": ""}
     try:
         doc = fitz.open(str(pdf_path))
     except Exception:
-        return {"analysts": [], "target_price": {}}
+        return {"analysts": [], "target_price": {}, "pdf_title": ""}
     text_pieces = []
     for i, page in enumerate(doc):
         if i >= max_pages:
@@ -127,11 +140,13 @@ def extract_metadata(pdf_path, max_pages: int = 3) -> dict:
             text_pieces.append(page.get_text())
         except Exception:
             pass
+    pdf_title = extract_pdf_title(doc)
     doc.close()
     text = "\n".join(text_pieces)
     return {
         "analysts": extract_analysts_from_text(text),
         "target_price": extract_target_price(text),
+        "pdf_title": pdf_title,
     }
 
 

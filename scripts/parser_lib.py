@@ -214,30 +214,32 @@ ANALYSTS_CACHE = load_analysts_cache()
 
 
 def get_pdf_metadata(pdf_path) -> dict:
-    """從 cache 拿，沒有就開 PDF 抽 analysts + target_price"""
+    """從 cache 拿，沒有就開 PDF 抽 analysts + target_price + pdf_title"""
     key = pdf_path.name
     try:
         mtime = pdf_path.stat().st_mtime
     except Exception:
         mtime = 0
     cached = ANALYSTS_CACHE.get(key)
-    # 含 target_price 欄位才是新版 cache
+    # 含 pdf_title 欄位才是新版 cache
     if (isinstance(cached, dict) and cached.get("mtime") == mtime
-            and "target_price" in cached):
+            and "pdf_title" in cached):
         return {
             "analysts": cached.get("analysts", []),
             "target_price": cached.get("target_price", {}),
+            "pdf_title": cached.get("pdf_title", ""),
         }
     try:
         sys.path.insert(0, str(SCRIPTS_DIR))
         from extract_metadata import extract_metadata
         meta = extract_metadata(pdf_path)
     except Exception:
-        meta = {"analysts": [], "target_price": {}}
+        meta = {"analysts": [], "target_price": {}, "pdf_title": ""}
     ANALYSTS_CACHE[key] = {
         "mtime": mtime,
         "analysts": meta["analysts"],
         "target_price": meta["target_price"],
+        "pdf_title": meta.get("pdf_title", ""),
     }
     return meta
 
@@ -1116,14 +1118,20 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
         display_subject = f"{stock_code} {stock_name}".strip() if stock_code else pdf.stem
     else:
         rid = pdf.stem
+        # 對「無股號」類別 (產業、外資報告 無 stock_code 等)，
+        # 若 topic 太短 (< 6 字) → 後面會用 PDF metadata title 補
         display_subject = topic or pdf.stem
 
     rel_pdf = pdf.relative_to(ROOT).as_posix()
     href = "../" + "/".join(quote(part) for part in rel_pdf.split("/"))
-    # 抽研究員 + 目標價 (合併: 檔名 _[作者] + PDF 內文)
+    # 抽研究員 + 目標價 + PDF metadata title
     fname_analysts = extract_analysts(pdf.name)
     pdf_meta = get_pdf_metadata(pdf)
     pdf_analysts = pdf_meta["analysts"]
+    pdf_title = pdf_meta.get("pdf_title", "")
+    # 對短 display_subject 用 PDF metadata title 取代 (如「automation」→ 完整標題)
+    if pdf_title and len(display_subject) < 8 and not stock_code:
+        display_subject = pdf_title
     # 策略類/總經類通常是多股週報，抽到的 target 多為雜訊不對應 row 主題 → skip
     skip_target_cats = {"策略與定期刊物", "總經"}
     target = {} if category in skip_target_cats else pdf_meta["target_price"]
