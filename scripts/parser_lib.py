@@ -213,24 +213,38 @@ def save_analysts_cache(cache: dict) -> None:
 ANALYSTS_CACHE = load_analysts_cache()
 
 
-def get_pdf_analysts(pdf_path) -> list:
-    """從 cache 拿，沒有就抽 PDF 內文 (含 cache 失效檢查)"""
+def get_pdf_metadata(pdf_path) -> dict:
+    """從 cache 拿，沒有就開 PDF 抽 analysts + target_price"""
     key = pdf_path.name
     try:
         mtime = pdf_path.stat().st_mtime
     except Exception:
         mtime = 0
     cached = ANALYSTS_CACHE.get(key)
-    if isinstance(cached, dict) and cached.get("mtime") == mtime:
-        return cached.get("analysts", [])
+    # 含 target_price 欄位才是新版 cache
+    if (isinstance(cached, dict) and cached.get("mtime") == mtime
+            and "target_price" in cached):
+        return {
+            "analysts": cached.get("analysts", []),
+            "target_price": cached.get("target_price", {}),
+        }
     try:
         sys.path.insert(0, str(SCRIPTS_DIR))
-        from extract_analysts import extract_from_pdf
-        analysts = extract_from_pdf(pdf_path)
+        from extract_metadata import extract_metadata
+        meta = extract_metadata(pdf_path)
     except Exception:
-        analysts = []
-    ANALYSTS_CACHE[key] = {"mtime": mtime, "analysts": analysts}
-    return analysts
+        meta = {"analysts": [], "target_price": {}}
+    ANALYSTS_CACHE[key] = {
+        "mtime": mtime,
+        "analysts": meta["analysts"],
+        "target_price": meta["target_price"],
+    }
+    return meta
+
+
+def get_pdf_analysts(pdf_path) -> list:
+    """Legacy wrapper. Use get_pdf_metadata for new code."""
+    return get_pdf_metadata(pdf_path)["analysts"]
 
 
 STOCK_NAMES = load_stock_names()
@@ -1106,9 +1120,11 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
 
     rel_pdf = pdf.relative_to(ROOT).as_posix()
     href = "../" + "/".join(quote(part) for part in rel_pdf.split("/"))
-    # 抽研究員 (合併: 檔名 _[作者] + PDF 內文)
+    # 抽研究員 + 目標價 (合併: 檔名 _[作者] + PDF 內文)
     fname_analysts = extract_analysts(pdf.name)
-    pdf_analysts = get_pdf_analysts(pdf)
+    pdf_meta = get_pdf_metadata(pdf)
+    pdf_analysts = pdf_meta["analysts"]
+    target = pdf_meta["target_price"]
     # 合併去重 (保留順序: 檔名來源優先)
     analysts = list(dict.fromkeys(fname_analysts + pdf_analysts))
     search_bits = [pdf.stem, date, category, stock_code, stock_name, topic, broker, pdf.name] + analysts
@@ -1135,11 +1151,11 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
         "topic": topic,
         "broker": broker,
         "rating": "",
-        "target_price_raw": "",
-        "target_price_currency": "",
-        "target_price_sort_value": 0,
+        "target_price_raw": target.get("raw", ""),
+        "target_price_currency": target.get("currency", ""),
+        "target_price_sort_value": target.get("value", 0),
         "target_price_status": "",
-        "has_target_price": False,
+        "has_target_price": bool(target.get("value", 0)),
         "source_file": pdf.name,
         "search_text": search_text,
         "pdf_href": href,
