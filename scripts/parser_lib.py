@@ -322,11 +322,12 @@ def detect_broker(text: str) -> str:
 
 def detect_date(text: str) -> str:
     """回傳 YYYY-MM-DD 或空字串"""
-    # YYYYMMDD
+    # YYYYMMDD (年份必須 2000-2050，否則視為 typo 略過)
     for m in DATE_RE.finditer(text):
         try:
-            datetime.strptime(m.group(1), "%Y%m%d")
-            return f"{m.group(1)[:4]}-{m.group(1)[4:6]}-{m.group(1)[6:]}"
+            dt = datetime.strptime(m.group(1), "%Y%m%d")
+            if 2000 <= dt.year <= 2050:
+                return f"{m.group(1)[:4]}-{m.group(1)[4:6]}-{m.group(1)[6:]}"
         except ValueError:
             continue
     # MMDDYYYY (晨訊06232026)
@@ -353,7 +354,7 @@ def detect_date(text: str) -> str:
 def parse_filename(filename: str):
     """解析檔名 → metadata dict 或 None"""
     raw = normalize(filename)
-    raw = re.sub(r"\.(pdf|md|docx|txt|zip)$", "", raw, flags=re.IGNORECASE)
+    raw = re.sub(r"\.(pdf|md|docx|doc|pptx|ppt|xlsx|xls|txt|zip)$", "", raw, flags=re.IGNORECASE)
     # 移除尾部 _(1) (2) (3) 重複編號 (含連帶的尾底線/空白)
     raw = re.sub(r"[_\s]*\(\d+\)$", "", raw)
     # 移除尾部 _[作者A,作者B] (避免 standardized 後再被 parse 時雙重附加)
@@ -937,7 +938,7 @@ def is_reserved(path: Path) -> bool:
 
 def collect_files():
     """掃根目錄 + 所有 年份\類別\ 下的檔案"""
-    accepted = {".pdf", ".md", ".docx", ".txt", ".zip"}
+    accepted = {".pdf", ".md", ".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls", ".txt", ".zip"}
     files = []
     # 根目錄
     for f in ROOT.iterdir():
