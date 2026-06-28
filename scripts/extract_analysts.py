@@ -105,10 +105,18 @@ def extract_from_text(text: str) -> list:
     ):
         add(m)
 
-    # 6. 中文姓名直接接 email (中信等本土券商常用此 layout，無 keyword)
+    # 6. 中文姓名直接接 email (中信等)
     # 例: 「李曉昀\nSusan.lee@ctbcsis.com」
     for m in re.findall(
         r"([一-鿿]{2,4})\s*[\n\r]+\s*[A-Za-z][\w.\-]*@[\w.\-]+",
+        text,
+    ):
+        add(m)
+
+    # 7. 中文姓名後跟電話/職稱再接 email (富邦等)
+    # 例: 「楊惟婷\n886-2-27815995#37015\nweiting.yang@fubon.com」
+    for m in re.findall(
+        r"(?:\n|^)([一-鿿]{2,4})\s*\n(?:[^\n]{0,80}\n){1,3}\s*[\w.\-]+@[\w.\-]+",
         text,
     ):
         add(m)
