@@ -1130,8 +1130,18 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
     pdf_analysts = pdf_meta["analysts"]
     pdf_title = pdf_meta.get("pdf_title", "")
     # 對無股號類別用 PDF metadata title 取代醜 display_subject
-    # (如「automation long」→「Greater China Technology Hardware: Automation – Read-across...」)
-    if pdf_title and not stock_code and category in ("產業", "外資報告", "海外個股"):
+    # 但 if 檔名 topic 已夠豐富 (中文 ≥ 3 字 或英文長度 ≥ 12)，**保留檔名**
+    # 避免「2026年下半年投資展望會-傳統產業」變「PowerPoint 簡報」這種雜訊覆蓋
+    cn_count = len([c for c in (display_subject or "") if "一" <= c <= "鿿"])
+    topic_has_content = cn_count >= 3 or len(display_subject or "") >= 12
+    # PDF metadata 雜訊 title (Office 轉 PDF 預設值)
+    junk_titles = {"powerpoint 簡報", "viewpoint", "japan stock market",
+                   "presentation", "microsoft word", "幻燈片", "投影片"}
+    if (pdf_title
+        and not stock_code
+        and category in ("產業", "外資報告", "海外個股")
+        and not topic_has_content
+        and pdf_title.lower() not in junk_titles):
         display_subject = pdf_title[:100]
     # 策略類/總經類通常是多股週報，抽到的 target 多為雜訊不對應 row 主題 → skip
     skip_target_cats = {"策略與定期刊物", "總經"}
@@ -1235,6 +1245,56 @@ def dedupe_duplicates() -> int:
                     if not new_path.exists():
                         print(f"  [還原檔名] {keeper.name} → {new_path.name}")
                         keeper.rename(new_path)
+    return removed
+
+
+def dedupe_size_close() -> int:
+    """同類別內 size 差 ≤ 5 bytes 的兩份視為同檔 (PDF 元資料時間戳差異)，刪較舊那個"""
+    import re as _re
+    removed = 0
+    for year_dir in ROOT.iterdir():
+        if not year_dir.is_dir() or not _re.match(r"^20\d{2}$", year_dir.name):
+            continue
+        for cat_dir in year_dir.iterdir():
+            if not cat_dir.is_dir():
+                continue
+            files = [f for f in cat_dir.iterdir() if f.is_file() and f.suffix.lower() == ".pdf"]
+            files.sort(key=lambda f: f.stat().st_size)
+            for i in range(len(files) - 1):
+                if not files[i].exists():
+                    continue
+                a, b = files[i], files[i + 1]
+                if not b.exists():
+                    continue
+                if abs(a.stat().st_size - b.stat().st_size) <= 5:
+                    # 刪檔名較長那個 (通常是補述版本)
+                    victim = a if len(a.name) > len(b.name) else b
+                    keeper = b if victim is a else a
+                    print(f"  [刪近似] {victim.relative_to(ROOT)} (size 差 ≤5B, 留 {keeper.name})")
+                    victim.unlink()
+                    removed += 1
+    return removed
+
+
+def dedupe_office_residue() -> int:
+    """PPT/Word 轉 PDF 後若原 docx/pptx/xlsx 還在 → 刪原檔"""
+    import re as _re
+    removed = 0
+    for year_dir in ROOT.iterdir():
+        if not year_dir.is_dir() or not _re.match(r"^20\d{2}$", year_dir.name):
+            continue
+        for cat_dir in year_dir.iterdir():
+            if not cat_dir.is_dir():
+                continue
+            stems = {f.stem: f for f in cat_dir.iterdir() if f.is_file() and f.suffix.lower() == ".pdf"}
+            for f in list(cat_dir.iterdir()):
+                if not f.is_file():
+                    continue
+                if f.suffix.lower() in (".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls"):
+                    if f.stem in stems:
+                        print(f"  [刪 Office 殘留] {f.relative_to(ROOT)} (已轉 PDF)")
+                        f.unlink()
+                        removed += 1
     return removed
 
 
@@ -1384,6 +1444,8 @@ def main():
     print("[2/4] 自動刪重複...")
     removed = dedupe_duplicates()
     removed += dedupe_by_md5()
+    removed += dedupe_size_close()
+    removed += dedupe_office_residue()
     print(f"  完成: 刪除 {removed} 份重複\n")
     print("[3/4] 整理孤立 _(N) → 原名...")
     fixed = fix_orphan_duplicates()
