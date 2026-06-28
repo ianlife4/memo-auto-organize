@@ -1127,6 +1127,12 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
     # 策略類/總經類通常是多股週報，抽到的 target 多為雜訊不對應 row 主題 → skip
     skip_target_cats = {"策略與定期刊物", "總經"}
     target = {} if category in skip_target_cats else pdf_meta["target_price"]
+    # 本土券商只顯示中文研究員 (避免 email 推回的「Iris Wang」跟「王美珍」並列重複)
+    if not is_foreign_broker(broker):
+        zh_pdf = [a for a in pdf_analysts if re.search(r"[一-鿿]", a)]
+        # 若有中文名就只用中文；沒中文 (全英文 broker) 才保留英文
+        if zh_pdf:
+            pdf_analysts = zh_pdf
     # 合併去重 (保留順序: 檔名來源優先)
     analysts = list(dict.fromkeys(fname_analysts + pdf_analysts))
     search_bits = [pdf.stem, date, category, stock_code, stock_name, topic, broker, pdf.name] + analysts
