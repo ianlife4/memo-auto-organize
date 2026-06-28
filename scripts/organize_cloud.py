@@ -426,9 +426,10 @@ def convert_office_files_in_cloud(dbx):
     import subprocess
     import tempfile
     import shutil
-    if not shutil.which("soffice") and not shutil.which("libreoffice"):
-        return
     soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    print(f"\n[Office 轉 PDF] LibreOffice: {soffice or '沒找到 (跳過)'}")
+    if not soffice:
+        return
     converted = 0
     # 列所有 office 檔
     for entry, year, cat in get_all_managed_files(dbx):
