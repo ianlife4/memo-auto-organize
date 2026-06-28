@@ -54,8 +54,8 @@ TARGET_PATTERNS_TIMEFRAME = [
 TARGET_PATTERNS = [
     # 「Target price\n NT$80.00」「Target Price: NT$5,950」
     r"(?:Target\s*[Pp]rice|Price\s*[Tt]arget)(?:\s*\([^\)]*\))?\s*[:：]?\s*\n?\s*(NT\$|US\$|HK\$|RMB|JPY|EUR|GBP|SGD|\$)\s*([\d,]+\.?\d*)",
-    # 「目標價: 80 元」「目標價(元): 80」 (台/中) 單值
-    r"目標?[价價]\s*[（(]?\s*[元美\w]*\s*[)）]?\s*[:：\s]+\s*(NT\$|US\$|HK\$|RMB|\$)?\s*([\d,]+\.?\d*)",
+    # 「目標價: 80 元」「目標價(元): 80」「目標價 (NT$) 60.00」(台/中) 單值
+    r"目標?[价價]\s*[（(]?\s*[元美\w$%]*\s*[)）]?\s*[:：\s]+\s*(NT\$|US\$|HK\$|RMB|\$)?\s*([\d,]+\.?\d*)",
     # 「PT NT$140」「PT: $XXX」 (外資簡寫)
     r"\bPT\s*[:：]?\s*(NT\$|US\$|HK\$|RMB|\$)\s*([\d,]+\.?\d*)",
 ]
