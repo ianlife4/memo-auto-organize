@@ -1124,7 +1124,9 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
     fname_analysts = extract_analysts(pdf.name)
     pdf_meta = get_pdf_metadata(pdf)
     pdf_analysts = pdf_meta["analysts"]
-    target = pdf_meta["target_price"]
+    # 策略類/總經類通常是多股週報，抽到的 target 多為雜訊不對應 row 主題 → skip
+    skip_target_cats = {"策略與定期刊物", "總經"}
+    target = {} if category in skip_target_cats else pdf_meta["target_price"]
     # 合併去重 (保留順序: 檔名來源優先)
     analysts = list(dict.fromkeys(fname_analysts + pdf_analysts))
     search_bits = [pdf.stem, date, category, stock_code, stock_name, topic, broker, pdf.name] + analysts
