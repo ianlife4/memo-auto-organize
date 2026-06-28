@@ -42,6 +42,13 @@ TARGET_PATTERNS_2COL = [
     ),
 ]
 
+TARGET_PATTERNS_TIMEFRAME = [
+    # 群益等: 「目標價\n3 個月\n2,250.00\n12 個月\n2,250.00」→ 取數字
+    r"目標?[价價]\s*[\n\r\s]+\d+\s*(?:個月|月|年)\s*[\n\r\s]+([\d,]+\.?\d*)",
+    # 內文描述句: 「Buy，目標價為2,250 元」「上調目標價至 NT$80」
+    r"目標?[价價](?:為|至|調整[至為])\s*(?:NT\$|US\$|HK\$|RMB|\$)?\s*([\d,]+\.?\d*)\s*元",
+]
+
 TARGET_PATTERNS = [
     # 「Target price\n NT$80.00」「Target Price: NT$5,950」
     r"(?:Target\s*[Pp]rice|Price\s*[Tt]arget)(?:\s*\([^\)]*\))?\s*[:：]?\s*\n?\s*(NT\$|US\$|HK\$|RMB|JPY|EUR|GBP|SGD|\$)\s*([\d,]+\.?\d*)",
@@ -54,7 +61,7 @@ TARGET_PATTERNS = [
 
 def extract_target_price(text: str) -> dict:
     """從 text 抽出目標價。優先處理「上次/本次」雙欄取本次"""
-    # 1. 先試雙欄格式
+    # 1. 先試雙欄格式 (上次/本次)
     for pat, group_idx in TARGET_PATTERNS_2COL:
         m = re.search(pat, text)
         if not m:
@@ -67,7 +74,20 @@ def extract_target_price(text: str) -> dict:
         if value <= 0 or value > 1e8:
             continue
         return {"raw": value_str, "currency": "NTD", "value": value}
-    # 2. 單值 patterns
+    # 2. 時程/描述句格式
+    for pat in TARGET_PATTERNS_TIMEFRAME:
+        m = re.search(pat, text)
+        if not m:
+            continue
+        value_str = m.group(1).replace(",", "")
+        try:
+            value = float(value_str)
+        except ValueError:
+            continue
+        if value <= 0 or value > 1e8:
+            continue
+        return {"raw": value_str, "currency": "NTD", "value": value}
+    # 3. 單值 patterns
     for pat in TARGET_PATTERNS:
         m = re.search(pat, text)
         if not m:
