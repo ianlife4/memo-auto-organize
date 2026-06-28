@@ -105,6 +105,14 @@ def extract_from_text(text: str) -> list:
     ):
         add(m)
 
+    # 6. 中文姓名直接接 email (中信等本土券商常用此 layout，無 keyword)
+    # 例: 「李曉昀\nSusan.lee@ctbcsis.com」
+    for m in re.findall(
+        r"([一-鿿]{2,4})\s*[\n\r]+\s*[A-Za-z][\w.\-]*@[\w.\-]+",
+        text,
+    ):
+        add(m)
+
     # Dedupe: 「Angela Hsu」是「Angela Hc Hsu」的 token subset → 保留長的
     final = []
     for n in sorted(found, key=lambda x: -len(x)):  # 長的優先
