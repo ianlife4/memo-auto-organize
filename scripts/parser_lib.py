@@ -1129,9 +1129,10 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
     pdf_meta = get_pdf_metadata(pdf)
     pdf_analysts = pdf_meta["analysts"]
     pdf_title = pdf_meta.get("pdf_title", "")
-    # 對短 display_subject 用 PDF metadata title 取代 (如「automation」→ 完整標題)
-    if pdf_title and len(display_subject) < 8 and not stock_code:
-        display_subject = pdf_title
+    # 對無股號類別用 PDF metadata title 取代醜 display_subject
+    # (如「automation long」→「Greater China Technology Hardware: Automation – Read-across...」)
+    if pdf_title and not stock_code and category in ("產業", "外資報告", "海外個股"):
+        display_subject = pdf_title[:100]
     # 策略類/總經類通常是多股週報，抽到的 target 多為雜訊不對應 row 主題 → skip
     skip_target_cats = {"策略與定期刊物", "總經"}
     target = {} if category in skip_target_cats else pdf_meta["target_price"]
