@@ -953,13 +953,18 @@ def is_reserved(path: Path) -> bool:
 
 
 def collect_files():
-    """掃根目錄 + 所有 年份\類別\ 下的檔案"""
+    """掃根目錄 + 待處理目錄 + 所有 年份\類別\ 下的檔案"""
     accepted = {".pdf", ".md", ".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls", ".txt", ".zip"}
     files = []
     # 根目錄
     for f in ROOT.iterdir():
         if f.is_file() and f.suffix.lower() in accepted and not is_reserved(f):
             files.append(f)
+    # 待處理 (user 可能直接上傳到這)
+    if PENDING_DIR.exists():
+        for f in PENDING_DIR.iterdir():
+            if f.is_file() and f.suffix.lower() in accepted and not is_reserved(f):
+                files.append(f)
     # 年份子目錄
     for year_dir in ROOT.iterdir():
         if not year_dir.is_dir() or not re.match(r"^20\d{2}$", year_dir.name):
