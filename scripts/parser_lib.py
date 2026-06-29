@@ -68,7 +68,7 @@ READER_INDEX = ROOT / "閱讀器" / "assets" / "report-index.js"
 PENDING_DIR = ROOT / "待處理"
 STOCK_NAMES_FILE = SCRIPTS_DIR / "stock_names.json"
 ANALYSTS_CACHE_FILE = SCRIPTS_DIR / "analysts_cache.json"
-CATEGORIES = ["個股", "海外個股", "產業", "總經", "策略與定期刊物", "外資報告", "大陸報告", "Memo"]
+CATEGORIES = ["個股", "海外個股", "大陸個股", "產業", "大陸產業", "總經", "策略與定期刊物", "外資報告", "Memo"]
 
 # 中國大陸券商 (broker 落在這 → category 改成「大陸報告」)
 CHINA_BROKERS = {
@@ -106,6 +106,30 @@ CHINA_BROKERS = {
     "國聯證券", "国联证券",
     "交銀國際", "交银国际", "交銀國際證券",
     "渤海證券", "渤海证券",
+    "華福證券", "华福证券",
+    "山西證券", "山西证券",
+    "信達證券", "信达证券",
+    "西部證券", "西部证券",
+    "民生證券", "民生证券",
+    "開源證券", "开源证券",
+    "浙商證券", "浙商证券",
+    "上海證券", "上海证券",
+    "國元證券", "国元证券",
+    "長城證券", "长城证券",
+    "紅塔證券", "红塔证券",
+    "萬聯證券", "万联证券",
+    "湘財證券", "湘财证券",
+    "東亞前海", "东亚前海",
+    "第一創業", "第一创业",
+    "中山證券", "中山证券",
+    "新時代證券", "新时代证券",
+    "中航證券", "中航证券",
+    "華鑫證券", "华鑫证券",
+    "粵開證券", "粤开证券",
+    "南京證券", "南京证券",
+    "東莞證券", "东莞证券",
+    "華龍證券", "华龙证券",
+    "甬興證券", "甬兴证券",
 }
 
 # 國際大行 — broker 落在這裡就覆寫 category 成「外資報告」
@@ -198,15 +222,31 @@ def lookup_stock_in_text(text: str):
 
 
 def enrich_meta(meta: dict, filename: str) -> dict:
-    """補上 parser 沒抓到的 stock_code + 統一中文轉繁體"""
+    """補上 parser 沒抓到的 stock_code + 統一中文轉繁體 + 個股辨識"""
     if not meta:
         return meta
+    # 從檔名 (NNNN TT) / (NNNN) / Call Memo NNNN / NNNN_公司名 抽 stock_code
+    if not meta.get("stock_code"):
+        m = (re.search(r"\((\d{4})\s*[T台]", filename)         # (3030 TT) (1303 台)
+             or re.search(r"\((\d{4})\)", filename)            # (1303)
+             or re.search(r"Call\s*Memo\s+(\d{4})", filename, re.IGNORECASE)  # Call Memo 1301
+             or re.search(r"(?:^|[\s_])(\d{4})[\s_]", filename))  # 1760 寶齡, 7740_熙特爾
+        if m:
+            code = m.group(1)
+            # 過濾年份等非股號 (1900-2050)
+            if not (1900 <= int(code) <= 2050) or int(code) > 2999:
+                meta["stock_code"] = code
+                if meta.get("category") == "產業":
+                    meta["category"] = "個股"
     if not meta.get("stock_code") and meta.get("category") in ("個股", "外資報告", "產業"):
         code, name = lookup_stock_in_text(filename + " " + (meta.get("topic") or ""))
         if code:
             meta["stock_code"] = code
             if not meta.get("stock_name"):
                 meta["stock_name"] = name
+            # 若 broker 是個股相關 (e.g. 「研究部 XXX (NNNN TT)」)，從產業改個股
+            if meta.get("category") == "產業":
+                meta["category"] = "個股"
     # 統一轉繁體 (避免顯示簡體混雜)
     for k in ("topic", "stock_name", "broker"):
         if meta.get(k):
@@ -1101,9 +1141,12 @@ def organize():
         # 外資 broker → 一律歸到「外資報告」(Memo 不動)
         if is_foreign_broker(meta["broker"]) and meta["category"] != "Memo":
             meta["category"] = "外資報告"
-        # 中國大陸 broker → 一律歸到「大陸報告」(Memo 不動)
+        # 中國大陸 broker → 個股 → 大陸個股 / 產業 → 大陸產業 (Memo 不動)
         if meta["broker"] in CHINA_BROKERS and meta["category"] != "Memo":
-            meta["category"] = "大陸報告"
+            if meta["category"] == "個股":
+                meta["category"] = "大陸個股"
+            else:
+                meta["category"] = "大陸產業"
         year = meta["date"][:4]
         target_dir = ROOT / year / meta["category"]
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -1170,9 +1213,12 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
     stock_name = meta.get("stock_name", "") or STOCK_NAMES.get(stock_code, "")
     topic = meta.get("topic", "")
     market = meta.get("market", "")
-    # 中國大陸券商 → category 覆寫為「大陸報告」(原本歸到產業 / 個股 的都改)
-    if broker in CHINA_BROKERS and category in ("產業", "個股"):
-        category = "大陸報告"
+    # 中國大陸券商 → 個股 → 大陸個股 / 產業 → 大陸產業
+    if broker in CHINA_BROKERS:
+        if category == "個股":
+            category = "大陸個股"
+        elif category in ("產業", "大陸報告"):
+            category = "大陸產業"
 
     if category == "海外個股":
         ticker = meta.get("ticker") or stock_code
