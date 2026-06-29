@@ -68,7 +68,45 @@ READER_INDEX = ROOT / "閱讀器" / "assets" / "report-index.js"
 PENDING_DIR = ROOT / "待處理"
 STOCK_NAMES_FILE = SCRIPTS_DIR / "stock_names.json"
 ANALYSTS_CACHE_FILE = SCRIPTS_DIR / "analysts_cache.json"
-CATEGORIES = ["個股", "海外個股", "產業", "總經", "策略與定期刊物", "外資報告", "Memo"]
+CATEGORIES = ["個股", "海外個股", "產業", "總經", "策略與定期刊物", "外資報告", "大陸報告", "Memo"]
+
+# 中國大陸券商 (broker 落在這 → category 改成「大陸報告」)
+CHINA_BROKERS = {
+    "東方財富證券", "东方财富证券",
+    "長江證券", "长江证券",
+    "太平洋證券", "太平洋证券",
+    "興業證券", "兴业证券",
+    "光大證券", "光大证券",
+    "中泰證券", "中泰证券",
+    "東吳證券", "东吴证券",
+    "東興證券", "东兴证券",
+    "招商證券", "招商证券",
+    "國信證券", "国信证券",
+    "國盛證券", "国盛证券",
+    "方正證券", "方正证券",
+    "華西證券", "华西证券",
+    "華泰證券", "华泰证券",
+    "海通證券", "海通证券",
+    "廣發證券", "广发证券",
+    "申萬宏源", "申万宏源",
+    "中信建投", "中信证券",
+    "中金公司",
+    "銀河證券", "银河证券",
+    "國金證券", "国金证券",
+    "國海證券", "国海证券",
+    "華創證券", "华创证券",
+    "財通證券", "财通证券",
+    "中郵證券", "中邮证券",
+    "天風證券", "天风证券",
+    "平安證券", "平安证券",
+    "安信證券", "安信证券",
+    "中銀證券", "中银证券",
+    "華源證券", "华源证券",
+    "東北證券", "东北证券",
+    "國聯證券", "国联证券",
+    "交銀國際", "交银国际", "交銀國際證券",
+    "渤海證券", "渤海证券",
+}
 
 # 國際大行 — broker 落在這裡就覆寫 category 成「外資報告」
 FOREIGN_BROKERS = {"JPM", "MS", "GS", "Bernstein", "Daiwa", "UBS", "MQ",
@@ -1061,6 +1099,9 @@ def organize():
         # 外資 broker → 一律歸到「外資報告」(Memo 不動)
         if is_foreign_broker(meta["broker"]) and meta["category"] != "Memo":
             meta["category"] = "外資報告"
+        # 中國大陸 broker → 一律歸到「大陸報告」(Memo 不動)
+        if meta["broker"] in CHINA_BROKERS and meta["category"] != "Memo":
+            meta["category"] = "大陸報告"
         year = meta["date"][:4]
         target_dir = ROOT / year / meta["category"]
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -1127,6 +1168,9 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
     stock_name = meta.get("stock_name", "") or STOCK_NAMES.get(stock_code, "")
     topic = meta.get("topic", "")
     market = meta.get("market", "")
+    # 中國大陸券商 → category 覆寫為「大陸報告」(原本歸到產業 / 個股 的都改)
+    if broker in CHINA_BROKERS and category in ("產業", "個股"):
+        category = "大陸報告"
 
     if category == "海外個股":
         ticker = meta.get("ticker") or stock_code
