@@ -250,9 +250,17 @@ def lookup_stock_in_text(text: str):
 
 
 def enrich_meta(meta: dict, filename: str) -> dict:
-    """補上 parser 沒抓到的 stock_code + 統一中文轉繁體 + 個股辨識"""
+    """補上 parser 沒抓到的 stock_code + 統一中文轉繁體 + 個股辨識 + broker 補抓"""
     if not meta:
         return meta
+    # 對 broker=未知 或 broker 不在 CHINA_BROKERS 但檔名/topic 內含大陸券商 → 補抓
+    if meta.get("broker") in ("", "未知", None) or meta.get("broker") not in CHINA_BROKERS:
+        haystack = filename + " " + (meta.get("topic") or "")
+        for bk in sorted(CHINA_BROKERS, key=lambda s: -len(s)):
+            # 確保是 broker 不是隨意字 — keyword 必須在前後有邊界字
+            if bk in haystack:
+                meta["broker"] = bk
+                break
     # 從檔名 (NNNN TT) / (NNNN) / Call Memo NNNN / NNNN_公司名 抽 stock_code
     if not meta.get("stock_code"):
         m = (re.search(r"\((\d{4})\s*[T台]", filename)         # (3030 TT) (1303 台)

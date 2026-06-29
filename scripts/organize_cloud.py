@@ -43,7 +43,7 @@ ANALYSTS_CACHE_DATA = {}  # 由 main() 從 Dropbox 載入
 
 ACCEPTED_EXTS = {".pdf", ".md", ".docx", ".txt", ".zip"}
 RESERVED_NAMES = {"desktop.ini", "0_使用說明.txt"}
-CATEGORIES = ["個股", "海外個股", "產業", "總經", "策略與定期刊物", "外資報告", "Memo"]
+CATEGORIES = ["個股", "海外個股", "大陸個股", "產業", "大陸產業", "總經", "策略與定期刊物", "外資報告", "Memo"]
 
 
 def get_client() -> dropbox.Dropbox:
@@ -256,7 +256,7 @@ def strip_pdf_in_cloud(dbx, path: str):
 
 
 def build_entry(entry: FileMetadata, category: str, year: str) -> dict:
-    """跟本機 update.py build_entry 100% 一致格式"""
+    """跟本機 update.py build_entry 100% 一致格式 (含大陸分類/PDF metadata/target_price/全文搜尋)"""
     from urllib.parse import quote
     name = entry.name
     stem = name.rsplit(".", 1)[0] if "." in name else name
@@ -269,25 +269,77 @@ def build_entry(entry: FileMetadata, category: str, year: str) -> dict:
     topic = meta.get("topic", "")
     market = meta.get("market", "")
 
+    # 中國大陸券商 → 個股 → 大陸個股 / 產業 → 大陸產業
+    if broker in getattr(parser_lib, "CHINA_BROKERS", set()):
+        if category == "個股":
+            category = "大陸個股"
+        elif category in ("產業", "大陸報告"):
+            category = "大陸產業"
+
+    # 從 cache 拿 PDF metadata
+    cache_entry = ANALYSTS_CACHE_DATA.get(name, {}) if isinstance(ANALYSTS_CACHE_DATA, dict) else {}
+    if isinstance(cache_entry, dict):
+        pdf_analysts = cache_entry.get("analysts", [])
+        target = cache_entry.get("target_price", {}) or {}
+        pdf_title = cache_entry.get("pdf_title", "")
+        body_excerpt = cache_entry.get("body_excerpt", "")
+    else:
+        pdf_analysts = cache_entry if isinstance(cache_entry, list) else []
+        target = {}
+        pdf_title = ""
+        body_excerpt = ""
+
+    fname_analysts = parser_lib.extract_analysts(name)
+
+    # 本土券商只保留中文 analyst
+    if broker and not parser_lib.is_foreign_broker(broker):
+        zh_pdf = [a for a in pdf_analysts if re.search(r"[一-鿿]", a)]
+        if zh_pdf:
+            pdf_analysts = zh_pdf
+    analysts = list(dict.fromkeys(fname_analysts + pdf_analysts))
+
+    # category 決定 target_price 抽不抽 (策略類/總經類 skip)
+    if category in ("策略與定期刊物", "總經"):
+        target = {}
+
     if category == "海外個股":
         ticker = meta.get("ticker") or stock_code
         rid = f"{ticker}_{market}_{date.replace('-', '')}_{broker}" if (ticker and date) else stem
         display_subject = f"{ticker} {stock_name}".strip() if ticker else (stock_name or stem)
-    elif category == "個股":
+    elif category in ("個股", "大陸個股"):
         rid = f"{stock_code}_{date.replace('-', '')}_{broker}" if (stock_code and date) else stem
         display_subject = f"{stock_code} {stock_name}".strip() if stock_code else stem
     else:
         rid = stem
         display_subject = topic or stem
 
+    # PDF metadata title 補位無股號類別 (檔名 topic 短時用)
+    cn_count = len([c for c in (display_subject or "") if "一" <= c <= "鿿"])
+    topic_has_content = cn_count >= 3 or len(display_subject or "") >= 12
+    junk_titles = {"powerpoint 簡報", "viewpoint", "japan stock market",
+                   "presentation", "microsoft word", "幻燈片", "投影片"}
+    if (pdf_title and not stock_code
+        and category in ("產業", "外資報告", "海外個股", "大陸產業")
+        and not topic_has_content
+        and pdf_title.lower() not in junk_titles):
+        display_subject = pdf_title[:100]
+
     rel_pdf = f"{year}/{category}/{name}"
     href = "../" + "/".join(quote(part) for part in rel_pdf.split("/"))
-    fname_analysts = parser_lib.extract_analysts(name)
-    cache_entry = ANALYSTS_CACHE_DATA.get(name, {}) if isinstance(ANALYSTS_CACHE_DATA, dict) else {}
-    pdf_analysts = cache_entry.get("analysts", []) if isinstance(cache_entry, dict) else []
-    analysts = list(dict.fromkeys(fname_analysts + pdf_analysts))
+
+    # target_price 寫進 entry
+    target_raw = ""
+    target_currency = ""
+    target_value = 0
+    has_target = False
+    if isinstance(target, dict) and target.get("value", 0) > 0:
+        target_value = target["value"]
+        target_currency = target.get("currency", "NTD")
+        target_raw = target.get("raw", "")
+        has_target = True
+
     search_bits = [stem, date, category, stock_code, stock_name, topic, broker, name] + analysts
-    search_text = " ".join(s for s in search_bits if s).lower()
+    search_text = (" ".join(s for s in search_bits if s) + " " + body_excerpt).lower()
     uploaded_at = entry.server_modified.strftime("%Y-%m-%d") if hasattr(entry, "server_modified") and entry.server_modified else date
 
     return {
@@ -306,11 +358,11 @@ def build_entry(entry: FileMetadata, category: str, year: str) -> dict:
         "topic": topic,
         "broker": broker,
         "rating": "",
-        "target_price_raw": "",
-        "target_price_currency": "",
-        "target_price_sort_value": 0,
+        "target_price_raw": target_raw,
+        "target_price_currency": target_currency,
+        "target_price_sort_value": target_value,
         "target_price_status": "",
-        "has_target_price": False,
+        "has_target_price": has_target,
         "source_file": name,
         "search_text": search_text,
         "pdf_href": href,
