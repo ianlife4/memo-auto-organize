@@ -1426,6 +1426,81 @@ def strip_pdf_actions_in_managed_dirs():
         print(f"  PDF: 移除 auto-print {stripped} 份")
 
 
+# 中國 PDF 網站浮水印 (檔名 + PDF 內視覺都要砍)
+WATERMARK_STRINGS = [
+    "【价值目录】", "【價值目錄】", "价值目录", "價值目錄",
+    "valuelist.cn", "VALUELIST.CN", "www.valuelist.cn",
+    "【洞见研报】", "【洞見研報】", "洞见研报", "洞見研報",
+    "DJyanbao.com", "djyanbao.com", "DJYANBAO",
+    "网整理", "網整理",
+]
+WATERMARK_CACHE_FILE = SCRIPTS_DIR / "watermark_stripped.json"
+
+
+def strip_visual_watermarks():
+    """從 PDF 內畫面移除已知浮水印 (用 PyMuPDF redaction 蓋白)"""
+    try:
+        import fitz
+    except ImportError:
+        return
+    import json as _json
+    # 記錄已處理過的 PDF (避免每次都重跑掃描)
+    try:
+        cache = _json.loads(WATERMARK_CACHE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        cache = {}
+    stripped = 0
+    for year_dir in ROOT.iterdir():
+        if not year_dir.is_dir() or not re.match(r"^20\d{2}$", year_dir.name):
+            continue
+        for cat_dir in year_dir.iterdir():
+            if not cat_dir.is_dir():
+                continue
+            for pdf in cat_dir.iterdir():
+                if not (pdf.is_file() and pdf.suffix.lower() == ".pdf"):
+                    continue
+                mtime = pdf.stat().st_mtime
+                key = pdf.name
+                if cache.get(key) == mtime:
+                    continue
+                try:
+                    doc = fitz.open(str(pdf))
+                except Exception:
+                    continue
+                modified = False
+                for page in doc:
+                    for pat in WATERMARK_STRINGS:
+                        for r in page.search_for(pat):
+                            r.x0 -= 3; r.y0 -= 3
+                            r.x1 += 3; r.y1 += 3
+                            page.add_redact_annot(r, fill=(1, 1, 1))
+                            modified = True
+                    if modified:
+                        try:
+                            page.apply_redactions()
+                        except Exception:
+                            pass
+                if modified:
+                    try:
+                        tmp = pdf.with_suffix(".pdf.tmp")
+                        doc.save(str(tmp), garbage=4, deflate=True)
+                        doc.close()
+                        tmp.replace(pdf)
+                        stripped += 1
+                        cache[key] = pdf.stat().st_mtime
+                    except Exception:
+                        doc.close()
+                else:
+                    doc.close()
+                    cache[key] = mtime
+    try:
+        WATERMARK_CACHE_FILE.write_text(_json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+    if stripped:
+        print(f"  PDF: 移除浮水印 {stripped} 份")
+
+
 def ensure_pdfjs_patched():
     """保證 PDF.js viewer 的 enableScripting 是 false (擋 PDF auto-print)"""
     try:
@@ -1475,6 +1550,7 @@ def main():
     print("[4/4] 重建索引...")
     build_index()
     strip_pdf_actions_in_managed_dirs()
+    strip_visual_watermarks()
     ensure_pdfjs_patched()
     write_heartbeat()
     sync_parser_to_cloud()
