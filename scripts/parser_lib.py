@@ -261,12 +261,12 @@ def enrich_meta(meta: dict, filename: str) -> dict:
             if bk in haystack:
                 meta["broker"] = bk
                 break
-    # 從檔名 (NNNN TT) / (NNNN) / Call Memo NNNN / NNNN_公司名 抽 stock_code
+    # 從檔名 (NNNN TT) / (NNNN) / Call Memo NNNN / NNNN_公司名 / NNNN公司名 抽 stock_code
     if not meta.get("stock_code"):
         m = (re.search(r"\((\d{4})\s*[T台]", filename)         # (3030 TT) (1303 台)
              or re.search(r"\((\d{4})\)", filename)            # (1303)
              or re.search(r"Call\s*Memo\s+(\d{4})", filename, re.IGNORECASE)  # Call Memo 1301
-             or re.search(r"(?:^|[\s_])(\d{4})[\s_]", filename))  # 1760 寶齡, 7740_熙特爾
+             or re.search(r"(?:^|[\s_])(\d{4})(?=[\s_一-鿿])", filename))  # 1760 寶齡 / 7740_熙特爾 / 2383台光電 (NNNN緊貼中文)
         if m:
             code = m.group(1)
             # 過濾年份等非股號 (1900-2050)
