@@ -676,6 +676,23 @@ def parse_filename(filename: str):
 
     # ===== 中國研報網站翻譯外資 (Pattern A) =====
     # 摩根士丹利-电池与人工智能：xxx-20260621【52页】_pS32
+    # ===== 中國研報新格式: 行業-副標題：主標題-券商[作者1,作者2]-yyyymmdd =====
+    # (【N頁】_xxxX 已被前面 normalize 移掉)
+    # 例: 电气设备-电力设备行业专题研究：数据中心供电架构升级，SST趋势明确-东方财富证券[]-20260624
+    # 例: 电气设备-新能源+商业航天系列研究：太空能源步入多路线、大市场新阶段-太平洋[刘强,钟欣材]-20260624
+    m = re.match(
+        r"^([一-鿿A-Za-z0-9]+)-(.+?)[：:](.+?)-([一-鿿A-Za-z]{2,15})(?:\[([^\]]*)\])?-(\d{8})\s*$",
+        name,
+    )
+    if m:
+        industry, subtitle, title, brk, authors_str, ymd = m.groups()
+        # 加「证券」後綴若沒 (太平洋 → 太平洋证券，中信建投 → 中信建投证券)
+        if not brk.endswith(("证券", "证劵", "證券")):
+            brk = brk + "证券"
+        cat = classify_topic_text(title + " " + name)
+        return _meta(cat, date=f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}",
+                     broker=brk, topic=title.strip())
+
     # 基础化工-基础化工行业：xxx-广发证券[作者]-20260621【11页】_yC80 (中國券商在 topic 內)
     m = re.match(r"^([一-鿿]+)-(.+?)-(\d{8})【\d+[页頁]】(?:_[\w]+)?$", name)
     if m:
