@@ -2,7 +2,7 @@ name: 自動整理 MEMO烏骨雞
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # 每 5 分鐘 (public repo 免費 unlimited)
+    - cron: '*/3 * * * *'  # 每 5 分鐘 (public repo 免費 unlimited)
   workflow_dispatch:
     inputs:
       force:
