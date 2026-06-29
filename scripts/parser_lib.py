@@ -252,32 +252,34 @@ ANALYSTS_CACHE = load_analysts_cache()
 
 
 def get_pdf_metadata(pdf_path) -> dict:
-    """從 cache 拿，沒有就開 PDF 抽 analysts + target_price + pdf_title"""
+    """從 cache 拿，沒有就開 PDF 抽 analysts + target_price + pdf_title + body_excerpt"""
     key = pdf_path.name
     try:
         mtime = pdf_path.stat().st_mtime
     except Exception:
         mtime = 0
     cached = ANALYSTS_CACHE.get(key)
-    # 含 pdf_title 欄位才是新版 cache
+    # 含 body_excerpt 欄位才是新版 cache
     if (isinstance(cached, dict) and cached.get("mtime") == mtime
-            and "pdf_title" in cached):
+            and "body_excerpt" in cached):
         return {
             "analysts": cached.get("analysts", []),
             "target_price": cached.get("target_price", {}),
             "pdf_title": cached.get("pdf_title", ""),
+            "body_excerpt": cached.get("body_excerpt", ""),
         }
     try:
         sys.path.insert(0, str(SCRIPTS_DIR))
         from extract_metadata import extract_metadata
         meta = extract_metadata(pdf_path)
     except Exception:
-        meta = {"analysts": [], "target_price": {}, "pdf_title": ""}
+        meta = {"analysts": [], "target_price": {}, "pdf_title": "", "body_excerpt": ""}
     ANALYSTS_CACHE[key] = {
         "mtime": mtime,
         "analysts": meta["analysts"],
         "target_price": meta["target_price"],
         "pdf_title": meta.get("pdf_title", ""),
+        "body_excerpt": meta.get("body_excerpt", ""),
     }
     return meta
 
@@ -1220,8 +1222,9 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
             pdf_analysts = zh_pdf
     # 合併去重 (保留順序: 檔名來源優先)
     analysts = list(dict.fromkeys(fname_analysts + pdf_analysts))
+    body_excerpt = pdf_meta.get("body_excerpt", "")
     search_bits = [pdf.stem, date, category, stock_code, stock_name, topic, broker, pdf.name] + analysts
-    search_text = " ".join(s for s in search_bits if s).lower()
+    search_text = (" ".join(s for s in search_bits if s) + " " + body_excerpt).lower()
     # 上傳/同步日期 (本機 mtime)
     try:
         uploaded_at = datetime.fromtimestamp(pdf.stat().st_mtime).strftime("%Y-%m-%d")

@@ -124,14 +124,14 @@ def extract_pdf_title(doc) -> str:
     return ""
 
 
-def extract_metadata(pdf_path, max_pages: int = 3) -> dict:
-    """一次開 PDF 抽 analysts + target_price + pdf_title"""
+def extract_metadata(pdf_path, max_pages: int = 5) -> dict:
+    """一次開 PDF 抽 analysts + target_price + pdf_title + body_excerpt"""
     if not fitz:
-        return {"analysts": [], "target_price": {}, "pdf_title": ""}
+        return {"analysts": [], "target_price": {}, "pdf_title": "", "body_excerpt": ""}
     try:
         doc = fitz.open(str(pdf_path))
     except Exception:
-        return {"analysts": [], "target_price": {}, "pdf_title": ""}
+        return {"analysts": [], "target_price": {}, "pdf_title": "", "body_excerpt": ""}
     text_pieces = []
     for i, page in enumerate(doc):
         if i >= max_pages:
@@ -143,10 +143,20 @@ def extract_metadata(pdf_path, max_pages: int = 3) -> dict:
     pdf_title = extract_pdf_title(doc)
     doc.close()
     text = "\n".join(text_pieces)
+    # body_excerpt: 用於 user 搜尋。同時保留簡繁兩種 (搜「儲能」「储能」都能找到)
+    body = re.sub(r"\s+", " ", text).strip()[:4000]
+    try:
+        import zhconv
+        body_tw = zhconv.convert(body, "zh-hant")
+        body_cn = zhconv.convert(body, "zh-hans")
+        body_excerpt = (body_tw + " " + body_cn).lower()[:8000]
+    except ImportError:
+        body_excerpt = body.lower()
     return {
         "analysts": extract_analysts_from_text(text),
         "target_price": extract_target_price(text),
         "pdf_title": pdf_title,
+        "body_excerpt": body_excerpt,
     }
 
 
