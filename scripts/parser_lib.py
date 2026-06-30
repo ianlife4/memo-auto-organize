@@ -335,27 +335,32 @@ def get_pdf_metadata(pdf_path) -> dict:
     except Exception:
         mtime = 0
     cached = ANALYSTS_CACHE.get(key)
-    # 含 body_excerpt 欄位才是新版 cache
+    # 含 stock_id 欄位才是 v2 cache (含內文股號/報告日期)
     if (isinstance(cached, dict) and cached.get("mtime") == mtime
-            and "body_excerpt" in cached):
+            and "stock_id" in cached):
         return {
             "analysts": cached.get("analysts", []),
             "target_price": cached.get("target_price", {}),
             "pdf_title": cached.get("pdf_title", ""),
             "body_excerpt": cached.get("body_excerpt", ""),
+            "stock_id": cached.get("stock_id", {}),
+            "report_date": cached.get("report_date", ""),
         }
     try:
         sys.path.insert(0, str(SCRIPTS_DIR))
         from extract_metadata import extract_metadata
         meta = extract_metadata(pdf_path)
     except Exception:
-        meta = {"analysts": [], "target_price": {}, "pdf_title": "", "body_excerpt": ""}
+        meta = {"analysts": [], "target_price": {}, "pdf_title": "", "body_excerpt": "",
+                "stock_id": {}, "report_date": ""}
     ANALYSTS_CACHE[key] = {
         "mtime": mtime,
         "analysts": meta["analysts"],
         "target_price": meta["target_price"],
         "pdf_title": meta.get("pdf_title", ""),
         "body_excerpt": meta.get("body_excerpt", ""),
+        "stock_id": meta.get("stock_id", {}),
+        "report_date": meta.get("report_date", ""),
     }
     return meta
 
@@ -1240,6 +1245,22 @@ def build_index():
     save_analysts_cache(ANALYSTS_CACHE)
 
 
+def _report_date_ok(cand: str, uploaded_at: str, category: str) -> bool:
+    """報告日期 sanity guard:
+    - 不晚於歸檔日+7 (擋內文除權息/財測未來日期)
+    - 個股不早於 2021 (擋公司沿革歷史年份; 大陸/外資深度報告允許真舊)"""
+    try:
+        y, m, d = map(int, uploaded_at.split("-"))
+        limit = (datetime(y, m, d) + timedelta(days=7)).strftime("%Y-%m-%d")
+        if cand > limit:
+            return False
+    except Exception:
+        pass
+    if cand < "2021-01-01" and "大陸" not in category and "外資" not in category:
+        return False
+    return True
+
+
 def build_entry(pdf: Path, category: str, year: str) -> dict:
     meta = parse_filename(pdf.name) or {}
     meta = enrich_meta(meta, pdf.name)
@@ -1274,11 +1295,28 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
 
     rel_pdf = pdf.relative_to(ROOT).as_posix()
     href = "../" + "/".join(quote(part) for part in rel_pdf.split("/"))
-    # 抽研究員 + 目標價 + PDF metadata title
+    # 抽研究員 + 目標價 + PDF metadata title + 內文股號/報告日期
     fname_analysts = extract_analysts(pdf.name)
     pdf_meta = get_pdf_metadata(pdf)
     pdf_analysts = pdf_meta["analysts"]
     pdf_title = pdf_meta.get("pdf_title", "")
+    # 內文抽出的股號/股名 — 若跟檔名不一致以內文為準
+    # (僅限本土個股；外資/大陸個股檔名格式特殊，避免誤判)
+    pdf_stock_id = pdf_meta.get("stock_id") or {}
+    if pdf_stock_id and category == "個股":
+        pdf_code = pdf_stock_id.get("stock_code", "")
+        pdf_name = pdf_stock_id.get("stock_name", "")
+        # 內文股號跟檔名不同 → 信任 PDF (檔名常打錯)
+        if pdf_code and pdf_code != stock_code:
+            stock_code = pdf_code
+            stock_name = pdf_name or STOCK_NAMES.get(pdf_code, "") or stock_name
+            # rid / display_subject 也要重算 (檔名歸檔仍 keep, rid 用內文值)
+            rid = f"{stock_code}_{date.replace('-', '')}_{broker}" if (stock_code and date) else pdf.stem
+            display_subject = f"{stock_code} {stock_name}".strip()
+    # 內文抽出的報告日期 — 若有則以內文為準 (檔名日期通常是歸檔日)
+    pdf_date = pdf_meta.get("report_date", "")
+    if pdf_date:
+        date = pdf_date
     # 對無股號類別用 PDF metadata title 取代醜 display_subject
     # 但 if 檔名 topic 已夠豐富 (中文 ≥ 3 字 或英文長度 ≥ 12)，**保留檔名**
     # 避免「2026年下半年投資展望會-傳統產業」變「PowerPoint 簡報」這種雜訊覆蓋
@@ -1306,7 +1344,10 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
     analysts = list(dict.fromkeys(fname_analysts + pdf_analysts))
     body_excerpt = pdf_meta.get("body_excerpt", "")
     search_bits = [pdf.stem, date, category, stock_code, stock_name, topic, broker, pdf.name] + analysts
-    search_text = (" ".join(s for s in search_bits if s) + " " + body_excerpt).lower()
+    # search_text 拼欄位 + PDF 內文摘錄；內文截到 800 字避免 report-index.js 爆肥
+    # （內文佔整體大小 ~95%，截了仍保留前文重要關鍵字可搜尋）
+    body_for_search = body_excerpt[:800] if body_excerpt else ""
+    search_text = (" ".join(s for s in search_bits if s) + " " + body_for_search).lower()
     # 上傳/同步日期 (本機 mtime)
     try:
         uploaded_at = datetime.fromtimestamp(pdf.stat().st_mtime).strftime("%Y-%m-%d")
@@ -1533,6 +1574,53 @@ def write_heartbeat():
         print(f"  (heartbeat 寫入失敗: {e})")
 
 
+def decrypt_pdfs_in_managed_dirs():
+    """對加密 PDF 用 pikepdf 解密 (玉山等本土券商常用 RC4 加密 → PDF.js 顯示 0 頁)"""
+    try:
+        import pikepdf
+        import fitz
+    except ImportError:
+        return
+    decrypted = 0
+    for year_dir in ROOT.iterdir():
+        if not year_dir.is_dir() or not re.match(r"^20\d{2}$", year_dir.name):
+            continue
+        for cat_dir in year_dir.iterdir():
+            if not cat_dir.is_dir():
+                continue
+            for pdf in cat_dir.iterdir():
+                if pdf.suffix.lower() != ".pdf":
+                    continue
+                # check encrypted
+                try:
+                    doc = fitz.open(str(pdf))
+                    enc = doc.metadata.get("encryption") if doc.metadata else None
+                    doc.close()
+                except Exception:
+                    continue
+                if not enc:
+                    continue
+                tmp = pdf.with_suffix(".pdf.dec.tmp")
+                try:
+                    with pikepdf.open(str(pdf)) as p:
+                        p.save(str(tmp))
+                    # verify
+                    doc2 = fitz.open(str(tmp))
+                    pages = len(doc2)
+                    doc2.close()
+                    if pages > 0:
+                        tmp.replace(pdf)
+                        decrypted += 1
+                    else:
+                        tmp.unlink()
+                except Exception:
+                    if tmp.exists():
+                        try: tmp.unlink()
+                        except: pass
+    if decrypted:
+        print(f"  PDF: 解密 {decrypted} 份 (RC4/AES)")
+
+
 def strip_pdf_actions_in_managed_dirs():
     """對 2025/26/類別/ 下的 PDF 移除 auto-print + JS (擋 Citi 等廠商強制列印)"""
     try:
@@ -1678,6 +1766,7 @@ def main():
     print(f"  完成: 整理 {fixed} 份\n")
     print("[4/4] 重建索引...")
     build_index()
+    decrypt_pdfs_in_managed_dirs()
     strip_pdf_actions_in_managed_dirs()
     strip_visual_watermarks()
     ensure_pdfjs_patched()
