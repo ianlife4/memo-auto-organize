@@ -1585,13 +1585,14 @@ def write_heartbeat():
 
 
 def decrypt_pdfs_in_managed_dirs():
-    """對加密 PDF 用 pikepdf 解密 (玉山等本土券商常用 RC4 加密 → PDF.js 顯示 0 頁)"""
+    """對加密 PDF 解密 + 損壞 PDF 修復 (玉山 RC4 加密 / LINE bot 截斷 → PDF.js 顯示 0 頁)"""
     try:
         import pikepdf
         import fitz
     except ImportError:
         return
     decrypted = 0
+    repaired = 0
     for year_dir in ROOT.iterdir():
         if not year_dir.is_dir() or not re.match(r"^20\d{2}$", year_dir.name):
             continue
@@ -1601,26 +1602,42 @@ def decrypt_pdfs_in_managed_dirs():
             for pdf in cat_dir.iterdir():
                 if pdf.suffix.lower() != ".pdf":
                     continue
-                # check encrypted
+                # 判斷狀態: 加密 / 損壞 / 正常
+                enc = None
+                broken = False
                 try:
                     doc = fitz.open(str(pdf))
                     enc = doc.metadata.get("encryption") if doc.metadata else None
+                    # 0 頁或開檔有結構錯誤 = 損壞
+                    if len(doc) == 0:
+                        broken = True
                     doc.close()
                 except Exception:
-                    continue
-                if not enc:
+                    broken = True
+                # 截斷檢查: 尾部沒 %%EOF
+                if not enc and not broken:
+                    try:
+                        with open(pdf, "rb") as f:
+                            f.seek(-1024, 2)
+                            if b"%%EOF" not in f.read():
+                                broken = True
+                    except Exception:
+                        pass
+                if not enc and not broken:
                     continue
                 tmp = pdf.with_suffix(".pdf.dec.tmp")
                 try:
                     with pikepdf.open(str(pdf)) as p:
                         p.save(str(tmp))
-                    # verify
                     doc2 = fitz.open(str(tmp))
                     pages = len(doc2)
                     doc2.close()
                     if pages > 0:
                         tmp.replace(pdf)
-                        decrypted += 1
+                        if enc:
+                            decrypted += 1
+                        else:
+                            repaired += 1
                     else:
                         tmp.unlink()
                 except Exception:
@@ -1629,6 +1646,8 @@ def decrypt_pdfs_in_managed_dirs():
                         except: pass
     if decrypted:
         print(f"  PDF: 解密 {decrypted} 份 (RC4/AES)")
+    if repaired:
+        print(f"  PDF: 修復 {repaired} 份 (損壞/截斷)")
 
 
 def strip_pdf_actions_in_managed_dirs():
