@@ -1593,6 +1593,7 @@ def decrypt_pdfs_in_managed_dirs():
         return
     decrypted = 0
     repaired = 0
+    need_reupload = 0
     for year_dir in ROOT.iterdir():
         if not year_dir.is_dir() or not re.match(r"^20\d{2}$", year_dir.name):
             continue
@@ -1625,6 +1626,30 @@ def decrypt_pdfs_in_managed_dirs():
                         pass
                 if not enc and not broken:
                     continue
+                # 截斷檔 (無 %%EOF + 非加密): 資料缺失, pikepdf 只能重建結構但字型/內容是亂碼
+                # → 移到 待刪除\需重傳\ (不留亂碼版在閱讀器), 等用戶重傳
+                is_truncated = False
+                if not enc:
+                    try:
+                        with open(pdf, "rb") as f:
+                            f.seek(-1024, 2)
+                            if b"%%EOF" not in f.read():
+                                is_truncated = True
+                    except Exception:
+                        is_truncated = True
+                if is_truncated:
+                    reupload_dir = ROOT / "待刪除" / "需重傳"
+                    reupload_dir.mkdir(parents=True, exist_ok=True)
+                    dest = reupload_dir / pdf.name
+                    try:
+                        if dest.exists():
+                            dest.unlink()
+                        pdf.rename(dest)
+                        print(f"  [截斷需重傳] {pdf.name} → 待刪除\\需重傳\\")
+                        need_reupload += 1
+                    except Exception:
+                        pass
+                    continue
                 tmp = pdf.with_suffix(".pdf.dec.tmp")
                 try:
                     with pikepdf.open(str(pdf)) as p:
@@ -1647,7 +1672,9 @@ def decrypt_pdfs_in_managed_dirs():
     if decrypted:
         print(f"  PDF: 解密 {decrypted} 份 (RC4/AES)")
     if repaired:
-        print(f"  PDF: 修復 {repaired} 份 (損壞/截斷)")
+        print(f"  PDF: 修復 {repaired} 份 (損壞)")
+    if need_reupload:
+        print(f"  PDF: {need_reupload} 份截斷需重傳 (已移到 待刪除\\需重傳\\)")
 
 
 def strip_pdf_actions_in_managed_dirs():
