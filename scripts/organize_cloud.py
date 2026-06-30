@@ -516,14 +516,26 @@ def enrich_new_pdfs_cloud(dbx) -> int:
         with tempfile.TemporaryDirectory() as td:
             local_pdf = Path(td) / "f.pdf"
             local_pdf.write_bytes(content)
-            # 加密 → 解密 → 回傳 Dropbox (覆蓋原檔)
+            # 加密 / 損壞(截斷) → pikepdf 處理 → 回傳 Dropbox (覆蓋原檔)
+            enc = None
+            broken = False
             try:
                 doc = fitz.open(str(local_pdf))
                 enc = doc.metadata.get("encryption") if doc.metadata else None
+                if len(doc) == 0:
+                    broken = True
                 doc.close()
             except Exception:
-                enc = None
-            if enc:
+                broken = True
+            # 截斷檢查 (尾部沒 %%EOF)
+            if not enc and not broken:
+                try:
+                    raw = local_pdf.read_bytes()
+                    if b"%%EOF" not in raw[-1024:]:
+                        broken = True
+                except Exception:
+                    pass
+            if enc or broken:
                 dec = Path(td) / "dec.pdf"
                 try:
                     with pikepdf.open(str(local_pdf)) as p:
@@ -539,9 +551,9 @@ def enrich_new_pdfs_cloud(dbx) -> int:
                             dbx.files_upload(new_bytes, entry.path_display,
                                              mode=WriteMode.overwrite)
                             local_pdf.write_bytes(new_bytes)
-                            print(f"    [解密] {name}")
+                            print(f"    [{'解密' if enc else '修復'}] {name}")
                         except Exception as e:
-                            print(f"    解密上傳失敗 {name}: {e}")
+                            print(f"    上傳失敗 {name}: {e}")
                 except Exception:
                     pass
             # 抽 metadata
