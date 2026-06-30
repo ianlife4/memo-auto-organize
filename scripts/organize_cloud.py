@@ -269,13 +269,6 @@ def build_entry(entry: FileMetadata, category: str, year: str) -> dict:
     topic = meta.get("topic", "")
     market = meta.get("market", "")
 
-    # 中國大陸券商 → 個股 → 大陸個股 / 產業 → 大陸產業
-    if broker in getattr(parser_lib, "CHINA_BROKERS", set()):
-        if category == "個股":
-            category = "大陸個股"
-        elif category in ("產業", "大陸報告"):
-            category = "大陸產業"
-
     # 從 cache 拿 PDF metadata
     cache_entry = ANALYSTS_CACHE_DATA.get(name, {}) if isinstance(ANALYSTS_CACHE_DATA, dict) else {}
     if isinstance(cache_entry, dict):
@@ -283,11 +276,26 @@ def build_entry(entry: FileMetadata, category: str, year: str) -> dict:
         target = cache_entry.get("target_price", {}) or {}
         pdf_title = cache_entry.get("pdf_title", "")
         body_excerpt = cache_entry.get("body_excerpt", "")
+        detected_broker = cache_entry.get("detected_broker", "")
     else:
         pdf_analysts = cache_entry if isinstance(cache_entry, list) else []
         target = {}
         pdf_title = ""
         body_excerpt = ""
+        detected_broker = ""
+
+    # broker=未知 → 用 PDF 內文偵測的外資 broker 補位
+    if detected_broker and broker in ("", "未知"):
+        broker = detected_broker
+        if category in ("個股", "產業"):
+            category = "外資報告"
+
+    # 中國大陸券商 → 個股 → 大陸個股 / 產業 → 大陸產業
+    if broker in getattr(parser_lib, "CHINA_BROKERS", set()):
+        if category == "個股":
+            category = "大陸個股"
+        elif category in ("產業", "大陸報告"):
+            category = "大陸產業"
 
     fname_analysts = parser_lib.extract_analysts(name)
 
@@ -457,6 +465,11 @@ def main():
     # Office (PPT/Word/Excel) 轉 PDF (雲端 Ubuntu 預裝 LibreOffice)
     convert_office_files_in_cloud(dbx)
 
+    # 解密 + 抽 PDF metadata (新檔案電腦關著也能完整處理)
+    print("\n[2.5/3] 處理新 PDF (解密 + 抽 analyst/目標價/broker)...")
+    enriched = enrich_new_pdfs_cloud(dbx)
+    print(f"  處理 {enriched} 份新 PDF")
+
     # 刪重複 (size+hash)
     print("\n[2/3] 刪重複...")
     removed = dedupe_cloud(dbx) + dedupe_cloud_by_hash(dbx)
@@ -468,6 +481,96 @@ def main():
     print(f"  寫入 {INDEX_OUTPUT} ({n} 筆)")
 
     print("\n完成")
+
+
+def enrich_new_pdfs_cloud(dbx) -> int:
+    """對 cache 沒有的 PDF: 下載 → (加密則解密回傳 Dropbox) → 抽 analyst/目標價/broker → 存進 cache。
+    讓電腦關著時, 朋友 LINE 傳的新檔也能完整處理 (跟本機 update.py 一致)。"""
+    import tempfile
+    try:
+        import fitz
+        import pikepdf
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from extract_metadata import extract_metadata
+    except ImportError as e:
+        print(f"  (缺套件跳過: {e})")
+        return 0
+
+    global ANALYSTS_CACHE_DATA
+    processed = 0
+    cache_changed = False
+    for entry, year, cat in get_all_managed_files(dbx):
+        if not entry.name.lower().endswith(".pdf"):
+            continue
+        name = entry.name
+        cached = ANALYSTS_CACHE_DATA.get(name)
+        # cache 已有且含 detected_broker = 已處理過, 跳過
+        if isinstance(cached, dict) and "detected_broker" in cached:
+            continue
+        try:
+            _, resp = dbx.files_download(entry.path_display)
+            content = resp.content
+        except Exception as e:
+            print(f"    下載失敗 {name}: {e}")
+            continue
+        with tempfile.TemporaryDirectory() as td:
+            local_pdf = Path(td) / "f.pdf"
+            local_pdf.write_bytes(content)
+            # 加密 → 解密 → 回傳 Dropbox (覆蓋原檔)
+            try:
+                doc = fitz.open(str(local_pdf))
+                enc = doc.metadata.get("encryption") if doc.metadata else None
+                doc.close()
+            except Exception:
+                enc = None
+            if enc:
+                dec = Path(td) / "dec.pdf"
+                try:
+                    with pikepdf.open(str(local_pdf)) as p:
+                        p.save(str(dec))
+                    d2 = fitz.open(str(dec))
+                    ok = len(d2) > 0
+                    d2.close()
+                    if ok:
+                        new_bytes = dec.read_bytes()
+                        # 覆蓋 Dropbox 上的原檔
+                        try:
+                            from dropbox.files import WriteMode
+                            dbx.files_upload(new_bytes, entry.path_display,
+                                             mode=WriteMode.overwrite)
+                            local_pdf.write_bytes(new_bytes)
+                            print(f"    [解密] {name}")
+                        except Exception as e:
+                            print(f"    解密上傳失敗 {name}: {e}")
+                except Exception:
+                    pass
+            # 抽 metadata
+            try:
+                meta = extract_metadata(local_pdf)
+            except Exception as e:
+                print(f"    抽 metadata 失敗 {name}: {e}")
+                meta = {}
+        ANALYSTS_CACHE_DATA[name] = {
+            "mtime": 0,  # 雲端用檔名當 key, mtime 不適用
+            "analysts": meta.get("analysts", []),
+            "target_price": meta.get("target_price", {}),
+            "pdf_title": meta.get("pdf_title", ""),
+            "body_excerpt": meta.get("body_excerpt", ""),
+            "stock_id": meta.get("stock_id", {}),
+            "report_date": meta.get("report_date", ""),
+            "detected_broker": meta.get("detected_broker", ""),
+        }
+        cache_changed = True
+        processed += 1
+    # 回寫 cache 到 Dropbox (本機下次跑會用到)
+    if cache_changed:
+        try:
+            upload_text(dbx, ANALYSTS_CACHE_PATH,
+                        json.dumps(ANALYSTS_CACHE_DATA, ensure_ascii=False))
+            print(f"  cache 已回寫 Dropbox ({len(ANALYSTS_CACHE_DATA)} 份)")
+        except Exception as e:
+            print(f"  cache 回寫失敗: {e}")
+    return processed
 
 
 OFFICE_EXTS = (".pptx", ".ppt", ".docx", ".doc", ".xlsx", ".xls")
