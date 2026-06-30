@@ -1318,22 +1318,22 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
         broker = detected_broker
         if category in ("個股", "產業"):
             category = "外資報告"
-    # 內文抽出的股號/股名 — 若跟檔名不一致以內文為準
-    # (僅限本土個股；外資/大陸個股檔名格式特殊，避免誤判)
+    # 檔名是否有明確 NNNN_ 股號 / _YYYYMMDD_ 日期 (有就以檔名為準, 不被內文覆蓋)
+    fname_has_code = bool(re.match(r"^\d{4}[_\s]", pdf.name))
+    fname_has_date = bool(re.search(r"_(\d{8})_", pdf.name))
+    # 內文抽出的股號/股名 — 僅在「檔名無明確股號」時才用內文 (避免 1460 被內文對標股 7740 蓋掉)
     pdf_stock_id = pdf_meta.get("stock_id") or {}
-    if pdf_stock_id and category == "個股":
+    if pdf_stock_id and category == "個股" and not fname_has_code:
         pdf_code = pdf_stock_id.get("stock_code", "")
         pdf_name = pdf_stock_id.get("stock_name", "")
-        # 內文股號跟檔名不同 → 信任 PDF (檔名常打錯)
         if pdf_code and pdf_code != stock_code:
             stock_code = pdf_code
             stock_name = pdf_name or STOCK_NAMES.get(pdf_code, "") or stock_name
-            # rid / display_subject 也要重算 (檔名歸檔仍 keep, rid 用內文值)
             rid = f"{stock_code}_{date.replace('-', '')}_{broker}" if (stock_code and date) else pdf.stem
             display_subject = f"{stock_code} {stock_name}".strip()
-    # 內文抽出的報告日期 — 若有則以內文為準 (檔名日期通常是歸檔日)
+    # 內文報告日期 — 僅在「檔名無明確日期」時才用內文 (避免 2327_0628 被內文前次日期 0622 蓋掉)
     pdf_date = pdf_meta.get("report_date", "")
-    if pdf_date:
+    if pdf_date and not fname_has_date:
         date = pdf_date
     # 對無股號類別用 PDF metadata title 取代醜 display_subject
     # 但 if 檔名 topic 已夠豐富 (中文 ≥ 3 字 或英文長度 ≥ 12)，**保留檔名**
@@ -1825,15 +1825,18 @@ def main():
     removed += dedupe_size_close()
     removed += dedupe_office_residue()
     print(f"  完成: 刪除 {removed} 份重複\n")
-    print("[3/4] 整理孤立 _(N) → 原名...")
+    print("[3/5] 整理孤立 _(N) → 原名...")
     fixed = fix_orphan_duplicates()
     print(f"  完成: 整理 {fixed} 份\n")
-    print("[4/4] 重建索引...")
-    build_index()
+    # 先「處理完」PDF (解密/去浮水印/擋列印) 再建索引
+    # → LINE 剛到的檔不會在半成品狀態 (0頁/沒metadata) 就被索引顯示
+    print("[4/5] 處理 PDF (解密 / 去浮水印 / 擋列印)...")
     decrypt_pdfs_in_managed_dirs()
     strip_pdf_actions_in_managed_dirs()
     strip_visual_watermarks()
     ensure_pdfjs_patched()
+    print("[5/5] 重建索引 (從處理完的 PDF 抽 metadata)...")
+    build_index()
     write_heartbeat()
     sync_parser_to_cloud()
     print("\n全部完成。開 啟動閱讀器.bat 看結果。")
