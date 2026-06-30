@@ -876,7 +876,9 @@ def parse_filename(filename: str):
     if m:
         topic, ymd, brk_raw = m.groups()
         # 排除「YYYYMMDD_xxx_xxx」誤匹配 (topic 是 8 位數)
-        if not re.match(r"^\d{8}$", topic):
+        # 年份防呆: 不合理 (非 2000-2030) → 視為 typo, 拒絕 (檔案進待處理)
+        yr = int(ymd[:4])
+        if not re.match(r"^\d{8}$", topic) and 2000 <= yr <= 2030:
             brk = detect_broker(brk_raw) or brk_raw
             cat = classify_topic_text(topic + " " + name)
             return _meta(cat, date=f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}",
