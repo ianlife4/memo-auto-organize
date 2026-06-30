@@ -343,9 +343,9 @@ def get_pdf_metadata(pdf_path) -> dict:
     except Exception:
         mtime = 0
     cached = ANALYSTS_CACHE.get(key)
-    # 含 detected_broker 欄位才是 v3 cache (加 PDF 內文 broker 偵測)
+    # 含 body_stock_names 欄位才是 v4 cache (加內文股名補抓)
     if (isinstance(cached, dict) and cached.get("mtime") == mtime
-            and "detected_broker" in cached):
+            and "body_stock_names" in cached):
         return {
             "analysts": cached.get("analysts", []),
             "target_price": cached.get("target_price", {}),
@@ -354,6 +354,7 @@ def get_pdf_metadata(pdf_path) -> dict:
             "stock_id": cached.get("stock_id", {}),
             "report_date": cached.get("report_date", ""),
             "detected_broker": cached.get("detected_broker", ""),
+            "body_stock_names": cached.get("body_stock_names", {}),
         }
     try:
         sys.path.insert(0, str(SCRIPTS_DIR))
@@ -361,7 +362,7 @@ def get_pdf_metadata(pdf_path) -> dict:
         meta = extract_metadata(pdf_path)
     except Exception:
         meta = {"analysts": [], "target_price": {}, "pdf_title": "", "body_excerpt": "",
-                "stock_id": {}, "report_date": "", "detected_broker": ""}
+                "stock_id": {}, "report_date": "", "detected_broker": "", "body_stock_names": {}}
     ANALYSTS_CACHE[key] = {
         "mtime": mtime,
         "analysts": meta["analysts"],
@@ -371,6 +372,7 @@ def get_pdf_metadata(pdf_path) -> dict:
         "stock_id": meta.get("stock_id", {}),
         "report_date": meta.get("report_date", ""),
         "detected_broker": meta.get("detected_broker", ""),
+        "body_stock_names": meta.get("body_stock_names", {}),
     }
     return meta
 
@@ -1279,6 +1281,11 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
     date = meta.get("date") or guess_date_from_year(year, pdf.name)
     broker = meta.get("broker", "")
     stock_code = meta.get("stock_code", "")
+    # 防呆: 4 位數開頭 0 但非 ETF (00XX) → 不是個股 (e.g.「0622」是日期/Memo編號)
+    if stock_code and stock_code.startswith("0") and not stock_code.startswith("00"):
+        stock_code = ""
+        if category == "個股":
+            category = "產業"
     stock_name = meta.get("stock_name", "") or STOCK_NAMES.get(stock_code, "")
     topic = meta.get("topic", "")
     market = meta.get("market", "")
@@ -1335,6 +1342,14 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
     pdf_date = pdf_meta.get("report_date", "")
     if pdf_date and not fname_has_date:
         date = pdf_date
+    # 股名補抓: 主檔沒這股號名 → 用內文「泰宗(4169 TT)」補 + 學進主檔
+    if stock_code and not stock_name and category in ("個股", "大陸個股"):
+        body_names = pdf_meta.get("body_stock_names") or {}
+        bn = body_names.get(stock_code)
+        if bn:
+            stock_name = to_traditional(bn)
+            STOCK_NAMES.setdefault(stock_code, stock_name)
+            display_subject = f"{stock_code} {stock_name}".strip()
     # 對無股號類別用 PDF metadata title 取代醜 display_subject
     # 但 if 檔名 topic 已夠豐富 (中文 ≥ 3 字 或英文長度 ≥ 12)，**保留檔名**
     # 避免「2026年下半年投資展望會-傳統產業」變「PowerPoint 簡報」這種雜訊覆蓋

@@ -186,6 +186,30 @@ def extract_pdf_stock_id(text_or_title: str) -> dict:
     return {}
 
 
+# 「泰宗 (4169 TT)」「智易(3596)」「聚賢研發-創(7631 TT)」— 中文名(可含-/KY/創) 接 (NNNN
+_BODY_NAME_PAT = re.compile(r"([一-鿿][一-鿿A-Za-z\-]{1,9})\s*[\(（]\s*(\d{4})\s*(?:TT|TW|TWO)?\s*[\)）]")
+# 反向「1519.TT 華城」「2330 TT 台積電」— NNNN(.TT) 接中文名
+_BODY_NAME_PAT_REV = re.compile(r"(\d{4})\s*(?:\.TT|\.TW|\s+TT|\s+TW)\s+([一-鿿][一-鿿A-Za-z\-]{1,9})")
+
+
+def _body_name_pairs(text: str):
+    """回傳所有 (code, name) — 正向「名(NNNN)」+ 反向「NNNN.TT 名」"""
+    pairs = {}
+    for name, code in _BODY_NAME_PAT.findall(text):
+        if 2 <= len(name) <= 10:
+            pairs.setdefault(code, name)
+    for code, name in _BODY_NAME_PAT_REV.findall(text):
+        if 2 <= len(name) <= 10:
+            pairs.setdefault(code, name)
+    return pairs
+
+
+def extract_stock_name_from_body(text: str, stock_code: str) -> str:
+    if not text or not stock_code:
+        return ""
+    return _body_name_pairs(text).get(stock_code, "")
+
+
 def extract_pdf_report_date(text: str) -> str:
     """從 PDF 抽『報告日期：YYYY/MM/DD』等格式，回傳 YYYY-MM-DD 或空字串"""
     head = text[:3000]
@@ -234,15 +258,18 @@ def extract_metadata(pdf_path, max_pages: int = 5) -> dict:
         body_excerpt = (body_tw + " " + body_cn).lower()[:8000]
     except ImportError:
         body_excerpt = body.lower()
+    # stock_id 從 title 抽; title 抓不到時用內文「中文名(NNNN TT)」補
+    stock_id = extract_pdf_stock_id(pdf_title)
     return {
         "analysts": extract_analysts_from_text(text),
         "target_price": extract_target_price(text),
         "pdf_title": pdf_title,
         "body_excerpt": body_excerpt,
         "detected_broker": detect_broker_in_text(text),
-        # stock_id 只從 metadata title 抽，避免 PDF 內文「2026 年...」雜訊
-        "stock_id": extract_pdf_stock_id(pdf_title),
+        "stock_id": stock_id,
         "report_date": extract_pdf_report_date(text),
+        # 純股名 (供 build_entry 在主檔沒這股號時補名), 正向+反向 pattern
+        "body_stock_names": _body_name_pairs(text),
     }
 
 
