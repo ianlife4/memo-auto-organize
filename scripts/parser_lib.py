@@ -335,9 +335,9 @@ def get_pdf_metadata(pdf_path) -> dict:
     except Exception:
         mtime = 0
     cached = ANALYSTS_CACHE.get(key)
-    # 含 stock_id 欄位才是 v2 cache (含內文股號/報告日期)
+    # 含 detected_broker 欄位才是 v3 cache (加 PDF 內文 broker 偵測)
     if (isinstance(cached, dict) and cached.get("mtime") == mtime
-            and "stock_id" in cached):
+            and "detected_broker" in cached):
         return {
             "analysts": cached.get("analysts", []),
             "target_price": cached.get("target_price", {}),
@@ -345,6 +345,7 @@ def get_pdf_metadata(pdf_path) -> dict:
             "body_excerpt": cached.get("body_excerpt", ""),
             "stock_id": cached.get("stock_id", {}),
             "report_date": cached.get("report_date", ""),
+            "detected_broker": cached.get("detected_broker", ""),
         }
     try:
         sys.path.insert(0, str(SCRIPTS_DIR))
@@ -352,7 +353,7 @@ def get_pdf_metadata(pdf_path) -> dict:
         meta = extract_metadata(pdf_path)
     except Exception:
         meta = {"analysts": [], "target_price": {}, "pdf_title": "", "body_excerpt": "",
-                "stock_id": {}, "report_date": ""}
+                "stock_id": {}, "report_date": "", "detected_broker": ""}
     ANALYSTS_CACHE[key] = {
         "mtime": mtime,
         "analysts": meta["analysts"],
@@ -361,6 +362,7 @@ def get_pdf_metadata(pdf_path) -> dict:
         "body_excerpt": meta.get("body_excerpt", ""),
         "stock_id": meta.get("stock_id", {}),
         "report_date": meta.get("report_date", ""),
+        "detected_broker": meta.get("detected_broker", ""),
     }
     return meta
 
@@ -1300,6 +1302,12 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
     pdf_meta = get_pdf_metadata(pdf)
     pdf_analysts = pdf_meta["analysts"]
     pdf_title = pdf_meta.get("pdf_title", "")
+    # broker 是「未知」就用 PDF 內文偵測的外資 broker 補位
+    detected_broker = pdf_meta.get("detected_broker", "")
+    if detected_broker and broker in ("", "未知"):
+        broker = detected_broker
+        if category in ("個股", "產業"):
+            category = "外資報告"
     # 內文抽出的股號/股名 — 若跟檔名不一致以內文為準
     # (僅限本土個股；外資/大陸個股檔名格式特殊，避免誤判)
     pdf_stock_id = pdf_meta.get("stock_id") or {}

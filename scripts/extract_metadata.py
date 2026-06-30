@@ -111,6 +111,45 @@ def extract_target_price(text: str) -> dict:
     return {}
 
 
+# 外資 broker keywords in PDF body (LINE bot 上傳的常沒 broker name in filename)
+BROKER_KEYWORDS = {
+    "Nomura": ["Nomura", "nomura"],
+    "JPM": ["J.P. Morgan", "JPMorgan", "JP Morgan"],
+    "MS": ["Morgan Stanley"],
+    "GS": ["Goldman Sachs"],
+    "UBS": ["UBS Securities", "UBS Investment", "UBS AG"],
+    "Citi": ["Citi Research", "Citigroup"],
+    "BofA": ["BofA Securities", "Merrill Lynch", "Bank of America"],
+    "Daiwa": ["Daiwa Securities"],
+    "HSBC": ["HSBC Securities", "HSBC Global", "HSBC Bank"],
+    "Jefferies": ["Jefferies"],
+    "MQ": ["Macquarie"],
+    "Bernstein": ["Bernstein Research", "Sanford C. Bernstein"],
+    "CLSA": ["CLSA Asia", "CLSA Limited"],
+    "DB": ["Deutsche Bank"],
+    "Mizuho": ["Mizuho Securities"],
+    "Nikko": ["Nikko Securities"],
+    "Barclays": ["Barclays Capital"],
+}
+
+
+def detect_broker_in_text(text: str) -> str:
+    """從 PDF 內文掃外資 broker keyword，取出現 ≥ 3 次的最頻繁者"""
+    if not text:
+        return ""
+    counts = {}
+    for short, kws in BROKER_KEYWORDS.items():
+        c = 0
+        for kw in kws:
+            c += text.count(kw)
+        if c > 0:
+            counts[short] = c
+    if not counts:
+        return ""
+    best = max(counts.items(), key=lambda x: x[1])
+    return best[0] if best[1] >= 3 else ""
+
+
 def extract_pdf_title(doc) -> str:
     """從 PDF metadata 抽 title，沒則用第一頁首字串"""
     md = doc.metadata or {}
@@ -124,14 +163,55 @@ def extract_pdf_title(doc) -> str:
     return ""
 
 
+_TITLE_PATTERNS = [
+    # "6894-衛司特-20260623-宏遠投顧" / "6894_衛司特_20260623"
+    re.compile(r"(?<![\d])(\d{4,5})[\-_]([一-鿿][一-鿿\-]{1,6})[\-_]\d{6,8}"),
+    # "6894-衛司特" (沒日期段)
+    re.compile(r"(?<![\d])(\d{4,5})[\-_]([一-鿿][一-鿿\-]{1,6})(?![一-鿿\d])"),
+]
+
+
+def extract_pdf_stock_id(text_or_title: str) -> dict:
+    """從 PDF metadata title 抽『股號-公司名』強信號 pattern。
+    回傳 {stock_code, stock_name} 或 {}.
+    只看 metadata title (Word 轉 PDF 的格式) 因為 PDF 內文太多年份雜訊會誤判。"""
+    if not text_or_title:
+        return {}
+    for pat in _TITLE_PATTERNS:
+        m = pat.search(text_or_title)
+        if m:
+            return {"stock_code": m.group(1), "stock_name": m.group(2)}
+    return {}
+
+
+def extract_pdf_report_date(text: str) -> str:
+    """從 PDF 抽『報告日期：YYYY/MM/DD』等格式，回傳 YYYY-MM-DD 或空字串"""
+    head = text[:3000]
+    patterns = [
+        r"報告日期[\s：:]+(\d{4})[\/\-年\.](\d{1,2})[\/\-月\.](\d{1,2})",
+        r"出版日期[\s：:]+(\d{4})[\/\-年\.](\d{1,2})[\/\-月\.](\d{1,2})",
+        r"發布日期[\s：:]+(\d{4})[\/\-年\.](\d{1,2})[\/\-月\.](\d{1,2})",
+        r"(?:^|\n|\s)日期[\s：:]+(\d{4})[\/\-年\.](\d{1,2})[\/\-月\.](\d{1,2})",
+    ]
+    for p in patterns:
+        m = re.search(p, head)
+        if m:
+            y, mo, d = m.group(1), m.group(2).zfill(2), m.group(3).zfill(2)
+            return f"{y}-{mo}-{d}"
+    return ""
+
+
 def extract_metadata(pdf_path, max_pages: int = 5) -> dict:
-    """一次開 PDF 抽 analysts + target_price + pdf_title + body_excerpt"""
+    """一次開 PDF 抽 analysts + target_price + pdf_title + body_excerpt
+    + stock_id (從內文抽 stock_code/stock_name) + report_date (從內文抽報告日期)"""
+    empty = {"analysts": [], "target_price": {}, "pdf_title": "", "body_excerpt": "",
+             "stock_id": {}, "report_date": ""}
     if not fitz:
-        return {"analysts": [], "target_price": {}, "pdf_title": "", "body_excerpt": ""}
+        return empty
     try:
         doc = fitz.open(str(pdf_path))
     except Exception:
-        return {"analysts": [], "target_price": {}, "pdf_title": "", "body_excerpt": ""}
+        return empty
     text_pieces = []
     for i, page in enumerate(doc):
         if i >= max_pages:
@@ -157,6 +237,10 @@ def extract_metadata(pdf_path, max_pages: int = 5) -> dict:
         "target_price": extract_target_price(text),
         "pdf_title": pdf_title,
         "body_excerpt": body_excerpt,
+        "detected_broker": detect_broker_in_text(text),
+        # stock_id 只從 metadata title 抽，避免 PDF 內文「2026 年...」雜訊
+        "stock_id": extract_pdf_stock_id(pdf_title),
+        "report_date": extract_pdf_report_date(text),
     }
 
 
