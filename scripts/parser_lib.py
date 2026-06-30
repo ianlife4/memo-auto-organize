@@ -1275,10 +1275,25 @@ def _report_date_ok(cand: str, uploaded_at: str, category: str) -> bool:
     return True
 
 
+def _valid_date(s: str) -> bool:
+    """檢查 YYYY-MM-DD 是合法日期 (擋 2026-26-28 這種月份打錯)"""
+    try:
+        datetime.strptime(s, "%Y-%m-%d")
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
 def build_entry(pdf: Path, category: str, year: str) -> dict:
     meta = parse_filename(pdf.name) or {}
     meta = enrich_meta(meta, pdf.name)
     date = meta.get("date") or guess_date_from_year(year, pdf.name)
+    # 日期合法性: 月份/日期打錯 (2026-26-28) → 用檔案上傳日 (mtime) 兜底
+    if not _valid_date(date):
+        try:
+            date = datetime.fromtimestamp(pdf.stat().st_mtime).strftime("%Y-%m-%d")
+        except Exception:
+            date = f"{year}-01-01"
     broker = meta.get("broker", "")
     stock_code = meta.get("stock_code", "")
     # 防呆: 4 位數開頭 0 但非 ETF (00XX) → 不是個股 (e.g.「0622」是日期/Memo編號)
@@ -1287,6 +1302,11 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
         if category == "個股":
             category = "產業"
     stock_name = meta.get("stock_name", "") or STOCK_NAMES.get(stock_code, "")
+    # 股名是純英文 (外資報告的 Elite Material) 但主檔有中文名 → 優先中文 (2383 → 台光電)
+    if stock_name and not re.search(r"[一-鿿]", stock_name):
+        zh = STOCK_NAMES.get(stock_code, "")
+        if zh and re.search(r"[一-鿿]", zh):
+            stock_name = zh
     topic = meta.get("topic", "")
     market = meta.get("market", "")
     # 中國大陸券商 → 個股 → 大陸個股 / 產業 → 大陸產業
