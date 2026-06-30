@@ -274,8 +274,16 @@ def enrich_meta(meta: dict, filename: str) -> dict:
                 meta["stock_code"] = code
                 if meta.get("category") == "產業":
                     meta["category"] = "個股"
-    if not meta.get("stock_code") and meta.get("category") in ("個股", "外資報告", "產業"):
+    # 中國大陸 broker 報告檔名常是「report_日期_XX證券」, 不該用 broker 短名反查台股
+    # (e.g.「華安證券」的「華安」被誤配成台股 6657 華安醫學)
+    broker_now = meta.get("broker", "")
+    is_china_broker = broker_now in CHINA_BROKERS
+    if (not meta.get("stock_code") and meta.get("category") in ("個股", "外資報告", "產業")
+            and not is_china_broker):
         code, name = lookup_stock_in_text(filename + " " + (meta.get("topic") or ""))
+        # 股名若是 broker 名的子集 (華安 ⊂ 華安證券) → 是 broker 不是股票, 拒絕
+        if code and name and name in broker_now:
+            code, name = None, None
         if code:
             meta["stock_code"] = code
             if not meta.get("stock_name"):

@@ -52,6 +52,8 @@ TARGET_PATTERNS_TIMEFRAME = [
 ]
 
 TARGET_PATTERNS = [
+    # 「泰宗 (4169 TT, NT$217.5, 增加持股)」凱基股票標頭格式 — NT$ 後第一個數字
+    r"\(\d{4}\s*(?:TT|TW|TWO)\s*,\s*(NT\$|US\$|HK\$|\$)\s*([\d,]+\.?\d*)",
     # 「Target price\n NT$80.00」「Target Price: NT$5,950」
     r"(?:Target\s*[Pp]rice|Price\s*[Tt]arget)(?:\s*\([^\)]*\))?\s*[:：]?\s*\n?\s*(NT\$|US\$|HK\$|RMB|JPY|EUR|GBP|SGD|\$)\s*([\d,]+\.?\d*)",
     # 「目標價: 80 元」「目標價(元): 80」「目標價 (NT$) 60.00」(台/中) 單值
