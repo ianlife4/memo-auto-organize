@@ -1368,7 +1368,9 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
         bn = body_names.get(stock_code)
         if bn:
             stock_name = to_traditional(bn)
-            STOCK_NAMES.setdefault(stock_code, stock_name)
+            # 只把「中文」股名學進主檔 (避免外資英文 Elite Material 污染)
+            if re.search(r"[一-鿿]", stock_name):
+                STOCK_NAMES.setdefault(stock_code, stock_name)
             display_subject = f"{stock_code} {stock_name}".strip()
     # 對無股號類別用 PDF metadata title 取代醜 display_subject
     # 但 if 檔名 topic 已夠豐富 (中文 ≥ 3 字 或英文長度 ≥ 12)，**保留檔名**
