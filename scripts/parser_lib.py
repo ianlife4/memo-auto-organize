@@ -1220,7 +1220,14 @@ def organize():
         if pdf.resolve() == target.resolve():
             skipped += 1
             continue
-        shutil.move(str(pdf), str(target))
+        # 移檔容錯: 檔案可能已被前一輪處理 (Office 轉檔/重複) → 跳過不中斷整批
+        try:
+            if not pdf.exists():
+                continue
+            shutil.move(str(pdf), str(target))
+        except (FileNotFoundError, OSError) as e:
+            print(f"  [跳過] {pdf.name} (移檔失敗: {e})")
+            continue
         old_loc = f"{pdf.parent.name}\\" if pdf.parent != ROOT else ""
         print(f"  [整理] {old_loc}{pdf.name}  →  {year}\\{meta['category']}\\{target.name}")
         moved += 1
