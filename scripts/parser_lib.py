@@ -1358,9 +1358,9 @@ def build_entry(pdf: Path, category: str, year: str) -> dict:
             stock_name = pdf_name or STOCK_NAMES.get(pdf_code, "") or stock_name
             rid = f"{stock_code}_{date.replace('-', '')}_{broker}" if (stock_code and date) else pdf.stem
             display_subject = f"{stock_code} {stock_name}".strip()
-    # 內文報告日期 — 僅在「檔名無明確日期」時才用內文 (避免 2327_0628 被內文前次日期 0622 蓋掉)
+    # 內文報告日期 — 僅在「檔名無明確日期」+ 內文日期合法時才用 (擋 2026-26-29 這種)
     pdf_date = pdf_meta.get("report_date", "")
-    if pdf_date and not fname_has_date:
+    if pdf_date and not fname_has_date and _valid_date(pdf_date):
         date = pdf_date
     # 股名補抓: 主檔沒這股號名 → 用內文「泰宗(4169 TT)」補 + 學進主檔
     if stock_code and not stock_name and category in ("個股", "大陸個股"):
